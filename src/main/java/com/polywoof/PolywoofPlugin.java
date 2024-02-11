@@ -1,13 +1,13 @@
 package com.polywoof;
 
 import com.google.inject.Provides;
+import com.polywoof.api.API;
+import com.polywoof.api.DeepL;
+import com.polywoof.api.Generic;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.*;
-import net.runelite.api.widgets.Widget;
-import net.runelite.api.widgets.WidgetID;
-import net.runelite.api.widgets.WidgetInfo;
-import net.runelite.client.RuneLite;
+import net.runelite.api.widgets.*;
 import net.runelite.client.chat.ChatColorType;
 import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
@@ -18,28 +18,46 @@ import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.JagexColors;
+import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.ui.overlay.OverlayPosition;
-import net.runelite.client.ui.overlay.OverlayPriority;
 import net.runelite.client.util.ColorUtil;
 import okhttp3.OkHttpClient;
-import org.h2.engine.Constants;
 
 import javax.annotation.ParametersAreNonnullByDefault;
+import javax.imageio.ImageIO;
 import javax.inject.Inject;
-import java.io.File;
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
-@Slf4j
-@ParametersAreNonnullByDefault
-@PluginDescriptor(name = "Polywoof", description = "Translation for almost every dialogue and some related text, so you can understand what's going on!", tags = {"helper", "language", "translator", "translation"})
+@Slf4j @ParametersAreNonnullByDefault @PluginDescriptor(
+		name = "Polywoof",
+		description = "Enjoy Quests in any Language!",
+		tags = {
+				"helper",
+				"language",
+				"translation"})
 public class PolywoofPlugin extends Plugin
 {
+	public static Font resourceFont;
+	public static BufferedImage resourceIcon;
+	public static final Executor executor = Executors.newSingleThreadExecutor();
+
 	private PolywoofStorage storage;
-	private PolywoofTranslator translator;
-	private Widget[] widgets;
-	private int dialogue;
-	private String previous;
+	private API backend;
+	private PolywoofUtils.TextVerifier verifierChatMessage;
+	private PolywoofUtils.TextVerifier verifierOverheadText;
+	private PolywoofUtils.TextVerifier verifierDialogText;
+	private boolean selectWidget = false;
+	private final List<API.GameText> previousList = new ArrayList<>(50);
+	private final List<String> examineList = new ArrayList<>();
 
 	@Inject private Client client;
 	@Inject private PolywoofConfig config;
@@ -48,82 +66,127 @@ public class PolywoofPlugin extends Plugin
 	@Inject private ChatMessageManager chatMessageManager;
 	@Inject private OkHttpClient okHttpClient;
 
-	@Provides
-	PolywoofConfig provideConfig(ConfigManager configManager)
+	@Provides PolywoofConfig provideConfig(ConfigManager configManager)
 	{
 		return configManager.getConfig(PolywoofConfig.class);
 	}
 
-	@Override
-	protected void startUp() throws Exception
+	@Override protected void startUp()
 	{
-		storage = new PolywoofStorage(new File(RuneLite.CACHE_DIR, "polywoof" + Constants.SUFFIX_MV_FILE));
-		storage.open();
+		try(InputStream stream = PolywoofPlugin.class.getResourceAsStream("/font.ttf"))
+		{
+			if(stream == null)
+			{
+				throw new IllegalArgumentException();
+			}
 
-		translator = new PolywoofTranslator(okHttpClient, storage, config.key());
-		translator.languages("target", languages -> log.info("{} languages loaded!", languages.size()));
+			resourceFont = Font.createFont(Font.TRUETYPE_FONT, stream);
+		}
+		catch(Exception error)
+		{
+			log.error("Failed to load the default font", error);
+		}
+
+		try(InputStream stream = PolywoofPlugin.class.getResourceAsStream("/icon.png"))
+		{
+			if(stream == null)
+			{
+				throw new IllegalArgumentException();
+			}
+
+			resourceIcon = ImageIO.read(stream);
+		}
+		catch(Exception error)
+		{
+			log.error("Failed to load the button icon", error);
+		}
 
 		overlay.setPosition(OverlayPosition.ABOVE_CHATBOX_RIGHT);
-		overlay.setPriority(OverlayPriority.LOW);
+		overlay.setPriority(Overlay.PRIORITY_LOW);
 		overlay.setLayer(OverlayLayer.ABOVE_WIDGETS);
 		overlay.revalidate();
 		overlayManager.add(overlay);
 
-		if(config.key().isEmpty())
-		{
-			String message = new ChatMessageBuilder()
-				.append("Polywoof is not ready, the ")
-				.append(ChatColorType.HIGHLIGHT)
-				.append("API Key")
-				.append(ChatColorType.NORMAL)
-				.append(" is missing.")
-				.build();
+		storage = new PolywoofStorage("polywoof");
+		verifierChatMessage = new PolywoofUtils.TextVerifier(config.filterChatMessage());
+		verifierOverheadText = new PolywoofUtils.TextVerifier(config.filterOverheadText());
+		verifierDialogText = new PolywoofUtils.TextVerifier(config.filterDialogText());
 
-			chatMessageManager.queue(QueuedMessage.builder().type(ChatMessageType.CONSOLE).runeLiteFormattedMessage(message).build());
+		setBackend(config.backend());
+
+		if(config.key().isBlank() && !(backend instanceof Generic))
+		{
+			String message = new ChatMessageBuilder().append(ChatColorType.NORMAL)
+					.append("Polywoof is not ready, the ")
+					.append(ChatColorType.HIGHLIGHT)
+					.append("API Key")
+					.append(ChatColorType.NORMAL)
+					.append(" is missing.")
+					.build();
+
+			chatMessageManager.queue(QueuedMessage.builder()
+					.type(ChatMessageType.CONSOLE)
+					.runeLiteFormattedMessage(message)
+					.build());
 		}
 
 		if(config.showUsage())
-			showUsage();
+		{
+			getUsage();
+		}
 	}
 
-	@Override
-	protected void shutDown() throws Exception
+	@Override protected void shutDown()
 	{
 		storage.close();
-		overlay.reset();
+		overlay.clear();
 		overlayManager.remove(overlay);
 	}
 
-	@Subscribe
-	public void onConfigChanged(ConfigChanged event)
+	@Subscribe public void onConfigChanged(ConfigChanged configChanged)
 	{
-		if(!event.getGroup().equals("polywoof"))
-			return;
-
-		switch(event.getKey())
+		if(!configChanged.getGroup().equals("polywoof"))
 		{
+			return;
+		}
+
+		switch(configChanged.getKey())
+		{
+			case "toggle":
+				examineList.clear();
+				break;
+			case "backend":
+				setBackend(config.backend());
 			case "language":
-				if(PolywoofTranslator.languageFinder(config.language()) instanceof PolywoofTranslator.UnknownLanguage)
+				if(backend.languageFind(config.language()) instanceof API.UnknownLanguage)
 				{
 					String language = config.language().trim().replaceAll("\n", " ");
 
 					if(language.length() > 10)
-						language = language.substring(0, 10) + "...";
+					{
+						language = String.format("%s...", language.substring(0, 10));
+					}
 
-					String message = new ChatMessageBuilder()
-						.append("Your chosen language «")
-						.append(ChatColorType.HIGHLIGHT)
-						.append(language)
-						.append(ChatColorType.NORMAL)
-						.append("» is not found!")
-						.build();
+					String message = new ChatMessageBuilder().append(ChatColorType.NORMAL)
+							.append("Your chosen language «")
+							.append(ChatColorType.HIGHLIGHT)
+							.append(language)
+							.append(ChatColorType.NORMAL)
+							.append("» is not found!")
+							.build();
 
-					chatMessageManager.queue(QueuedMessage.builder().type(ChatMessageType.CONSOLE).runeLiteFormattedMessage(message).build());
+					chatMessageManager.queue(QueuedMessage.builder()
+							.type(ChatMessageType.CONSOLE)
+							.runeLiteFormattedMessage(message)
+							.build());
 				}
 				break;
 			case "key":
-				translator.update(config.key());
-				translator.languages("target", languages -> log.info("{} languages loaded!", languages.size()));
+				if(backend instanceof DeepL)
+				{
+					((DeepL)backend).update(config.key());
+					backend.languageList(languages -> log.info("{} languages loaded!", languages.size()));
+				}
 				break;
 			case "showButton":
 				config.toggle(true);
@@ -131,321 +194,383 @@ public class PolywoofPlugin extends Plugin
 			case "fontName":
 			case "fontSize":
 			case "textShadow":
-			case "overlayColor":
+			case "overlayBackgroundColor":
 			case "overlayOutline":
 			case "textAlignment":
 			case "textWrap":
-			case "sourceName":
-			case "numberedOptions":
 				overlay.revalidate();
+				break;
+			case "filterChatMessage":
+				verifierChatMessage.update(config.filterDialogText());
+				break;
+			case "filterOverheadText":
+				verifierOverheadText.update(config.filterDialogText());
+				break;
+			case "filterDialogText":
+				verifierDialogText.update(config.filterDialogText());
 				break;
 		}
 	}
 
-	@Subscribe
-	public void onMenuOpened(MenuOpened event)
+	@Subscribe public void onMenuOpened(MenuOpened menuOpened)
 	{
 		if(!config.showButton() || !overlay.isMouseOver())
+		{
 			return;
+		}
 
 		client.createMenuEntry(1)
-			.setOption("Check")
-			.setTarget(ColorUtil.wrapWithColorTag("Usage", JagexColors.MENU_TARGET))
-			.setType(MenuAction.RUNELITE)
-			.onClick(menuEntry -> showUsage());
+				.setOption("Show")
+				.setTarget(ColorUtil.wrapWithColorTag("Usage", JagexColors.MENU_TARGET))
+				.setType(MenuAction.RUNELITE)
+				.onClick(menuEntry -> getUsage());
 
 		client.createMenuEntry(2)
-			.setOption(config.toggle() ? "Disable" : "Enable")
-			.setTarget(ColorUtil.wrapWithColorTag("Plugin", JagexColors.MENU_TARGET))
-			.setType(MenuAction.RUNELITE)
-			.onClick(menuEntry -> config.toggle(!config.toggle()));
+				.setOption(config.toggle() ? "Disable" : "Enable")
+				.setTarget(ColorUtil.wrapWithColorTag("Translation", JagexColors.MENU_TARGET))
+				.setType(MenuAction.RUNELITE)
+				.onClick(menuEntry -> config.toggle(!config.toggle()));
+
+		if(backend instanceof Generic)
+		{
+			client.createMenuEntry(3)
+					.setOption("Select")
+					.setTarget(ColorUtil.wrapWithColorTag("Widget", JagexColors.MENU_TARGET))
+					.setType(MenuAction.RUNELITE)
+					.onClick(menuEntry -> selectWidget = true);
+		}
 	}
 
-	@Subscribe
-	public void onChatMessage(ChatMessage event)
+	@Subscribe public void onMenuOptionClicked(MenuOptionClicked menuOptionClicked)
+	{
+		if(selectWidget)
+		{
+			selectWidget = false;
+			getWidget();
+		}
+
+		if(!config.toggle())
+		{
+			return;
+		}
+
+		switch(menuOptionClicked.getMenuAction())
+		{
+			case EXAMINE_ITEM_GROUND:
+			case EXAMINE_NPC:
+			case EXAMINE_OBJECT:
+			case CC_OP_LOW_PRIORITY:
+				if(config.showTitle() && config.translateExamine())
+				{
+					if(menuOptionClicked.getMenuEntry().getNpc() == null)
+					{
+						examineList.add(menuOptionClicked.getMenuTarget());
+					}
+					else
+					{
+						examineList.add(menuOptionClicked.getMenuEntry().getNpc().getName());
+					}
+				}
+				break;
+		}
+	}
+
+	@Subscribe public void onChatMessage(ChatMessage chatMessage)
 	{
 		if(!config.toggle())
+		{
 			return;
+		}
 
-		String header, string;
-		PolywoofStorage.DataType type;
+		List<API.GameText> textList = new ArrayList<>(50);
 
-		switch(event.getType())
+		switch(chatMessage.getType())
 		{
 			case GAMEMESSAGE:
-				if(!config.test() && !config.enableMessages())
+				if(!config.translateChatMessage())
+				{
 					return;
+				}
 
-				header = event.getName();
-				string = event.getMessage();
-				type = PolywoofStorage.DataType.CHAT_MESSAGES;
+				if(config.showTitle() && !chatMessage.getName().isBlank())
+				{
+					textList.add(new API.GameText(chatMessage.getName(), config.keepTitle()));
+				}
+
+				textList.add(new API.GameText(chatMessage.getMessage(), API.GameText.Type.MESSAGE));
 				break;
 			case ITEM_EXAMINE:
 			case NPC_EXAMINE:
 			case OBJECT_EXAMINE:
-				if(!config.test() && !config.enableExamine())
+				if(!config.translateExamine())
+				{
 					return;
+				}
 
-				header = null;
-				string = event.getMessage();
-				type = PolywoofStorage.DataType.ANY_EXAMINE;
+				if(config.showTitle() && !examineList.isEmpty())
+				{
+					textList.add(new API.GameText(examineList.remove(0), config.keepTitle()));
+				}
+
+				textList.add(new API.GameText(chatMessage.getMessage(), API.GameText.Type.EXAMINE));
 				break;
 			default:
 				return;
 		}
 
-		PolywoofFormatter.parser(string, PolywoofFormatter.messageEntries, replacement ->
-		{
-			PolywoofComponent.Subject subject = dialogueSubject();
+		verifierChatMessage.verify(textList);
 
-			if(config.test())
-				overlay.put(PolywoofFormatter.filter(header), PolywoofFormatter.filter(replacement), subject);
-			else
-				translator.translate(replacement, PolywoofTranslator.languageFinder(config.language()), type, put -> overlay.put(PolywoofFormatter.filter(header), put, subject));
-		});
+		if(!textList.isEmpty())
+		{
+			backend.submit(textList, backend.languageFind(config.language()), storage, () -> overlay.put(textList));
+		}
 	}
 
-	@Subscribe
-	public void onOverheadTextChanged(OverheadTextChanged event)
+	@Subscribe public void onOverheadTextChanged(OverheadTextChanged overheadTextChanged)
 	{
-		if(!config.toggle() || !config.test() && !config.enableOverhead())
-			return;
-
-		if(event.getActor() instanceof NPC)
+		if(!config.toggle())
 		{
-			String header, string;
-			PolywoofStorage.DataType type;
-			NPC actor = (NPC) event.getActor();
+			return;
+		}
 
-			switch(actor.getId())
+		if(config.translateOverheadText() && overheadTextChanged.getActor() instanceof NPC)
+		{
+			List<API.GameText> textList = new ArrayList<>(50);
+			NPC npc = (NPC)overheadTextChanged.getActor();
+
+			switch(npc.getId())
 			{
 				default:
-					header = actor.getName();
-					string = event.getOverheadText();
-					type = PolywoofStorage.DataType.OVERHEAD_TEXT;
+					if(config.showTitle() && npc.getName() != null)
+					{
+						textList.add(new API.GameText(npc.getName(), config.keepTitle()));
+					}
+
+					textList.add(new API.GameText(overheadTextChanged.getOverheadText(), API.GameText.Type.OVERHEAD));
 					break;
 				case NpcID.TOWN_CRIER:
-				case NpcID.TOWN_CRIER_277:
-				case NpcID.TOWN_CRIER_278:
-				case NpcID.TOWN_CRIER_279:
-				case NpcID.TOWN_CRIER_280:
-				case NpcID.TOWN_CRIER_6823:
-				case NpcID.TOWN_CRIER_10887:
+				case NpcID.ELITE_VOID_KNIGHT:
 					return;
 			}
 
-			PolywoofFormatter.parser(string, PolywoofFormatter.overheadEntries, replacement ->
-			{
-				PolywoofComponent.Subject subject = dialogueSubject();
+			verifierOverheadText.verify(textList);
 
-				if(config.test())
-					overlay.put(PolywoofFormatter.filter(header), PolywoofFormatter.filter(replacement), subject);
-				else
-					translator.translate(replacement, PolywoofTranslator.languageFinder(config.language()), type, put -> overlay.put(PolywoofFormatter.filter(header), put, subject));
+			if(!textList.isEmpty())
+			{
+				backend.submit(textList, backend.languageFind(config.language()), storage, () -> overlay.put(textList));
+
+			}
+		}
+	}
+
+	@Subscribe public void onGameTick(GameTick gameTick)
+	{
+		if(!config.toggle())
+		{
+			previousList.clear();
+			overlay.pop("default");
+			return;
+		}
+
+		List<API.GameText> textList = new ArrayList<>(50);
+		Widget dialogPlayerName = client.getWidget(InterfaceID.DIALOG_PLAYER, 4);
+		Widget dialogPlayerText = client.getWidget(ComponentID.DIALOG_PLAYER_TEXT);
+		Widget dialogNpcName = client.getWidget(ComponentID.DIALOG_NPC_NAME);
+		Widget dialogNpcText = client.getWidget(ComponentID.DIALOG_NPC_TEXT);
+		Widget dialogSpriteText = client.getWidget(ComponentID.DIALOG_SPRITE_TEXT);
+		Widget dialogDoubleSprite = client.getWidget(ComponentID.DIALOG_DOUBLE_SPRITE_TEXT);
+		Widget dialogOptionOptions = client.getWidget(ComponentID.DIALOG_OPTION_OPTIONS);
+		Widget genericScrollText = client.getWidget(ComponentID.GENERIC_SCROLL_TEXT);
+		Widget clueScrollText = client.getWidget(ComponentID.CLUESCROLL_TEXT);
+
+		if(dialogPlayerName != null && dialogPlayerText != null)
+		{
+			if(config.showTitle())
+			{
+				textList.add(new API.GameText(dialogPlayerName.getText(), config.keepTitle()));
+			}
+
+			textList.add(new API.GameText(dialogPlayerText.getText(), API.GameText.Type.DIALOG));
+		}
+
+		if(dialogNpcName != null && dialogNpcText != null)
+		{
+			if(config.showTitle())
+			{
+				textList.add(new API.GameText(dialogNpcName.getText(), config.keepTitle()));
+			}
+
+			textList.add(new API.GameText(dialogNpcText.getText(), API.GameText.Type.DIALOG));
+		}
+
+		if(dialogSpriteText != null)
+		{
+			textList.add(new API.GameText(dialogSpriteText.getText(), API.GameText.Type.DIALOG));
+		}
+
+		if(dialogDoubleSprite != null)
+		{
+			textList.add(new API.GameText(dialogDoubleSprite.getText(), API.GameText.Type.DIALOG));
+		}
+
+		if(dialogOptionOptions != null)
+		{
+			for(Widget widget : dialogOptionOptions.getDynamicChildren())
+			{
+				if(widget.getType() == WidgetType.TEXT)
+				{
+					if(widget.hasListener())
+					{
+						textList.add(new API.GameText(widget.getText(), API.GameText.Type.OPTION));
+					}
+					else if(config.showTitle())
+					{
+						textList.add(new API.GameText(widget.getText(), config.keepTitle()));
+					}
+				}
+			}
+		}
+
+		if(config.translateScroll() && genericScrollText != null)
+		{
+			StringBuilder builder = new StringBuilder(API.GameText.Type.SCROLL.size);
+
+			for(Widget widget : genericScrollText.getNestedChildren())
+			{
+				if(widget.getType() == WidgetType.TEXT)
+				{
+					if(widget.getText().isEmpty() && builder.length() > 0)
+					{
+						textList.add(new API.GameText(builder.toString(), API.GameText.Type.SCROLL));
+						builder = new StringBuilder(API.GameText.Type.SCROLL.size);
+					}
+					else
+					{
+						builder.append(widget.getText());
+					}
+				}
+			}
+		}
+
+		if(config.translateTreasureClue() && clueScrollText != null)
+		{
+			textList.add(new API.GameText(clueScrollText.getText(), API.GameText.Type.SCROLL));
+		}
+
+		verifierDialogText.verify(textList);
+
+		if(textList.isEmpty())
+		{
+			if(!previousList.isEmpty())
+			{
+				previousList.clear();
+				overlay.pop("default");
+			}
+
+			return;
+		}
+
+		if(!previousList.isEmpty() && textList.size() == previousList.size())
+		{
+			Iterator<API.GameText> iterator = previousList.iterator();
+
+			for(API.GameText gameText : textList)
+			{
+				if(!gameText.game.equals(iterator.next().game))
+				{
+					break;
+				}
+
+				if(!iterator.hasNext())
+				{
+					return;
+				}
+			}
+		}
+
+		previousList.clear();
+		previousList.addAll(textList);
+		overlay.pop("default");
+		backend.submit(textList, backend.languageFind(config.language()), storage, () -> overlay.set("default", textList));
+	}
+
+	private void setBackend(PolywoofConfig.TranslationBackend backend)
+	{
+		switch(backend)
+		{
+			case GENERIC:
+				this.backend = new Generic();
+				storage.close();
+				break;
+			case DEEPL:
+				this.backend = new DeepL(okHttpClient, config.key());
+				this.backend.languageList(languages -> log.info("{} languages loaded!", languages.size()));
+				storage.open();
+				break;
+		}
+	}
+
+	private void getUsage()
+	{
+		if(backend instanceof Generic)
+		{
+			String message = new ChatMessageBuilder().append(ChatColorType.HIGHLIGHT)
+					.append("Generic")
+					.append(ChatColorType.NORMAL)
+					.append(" backend does not have any quota.")
+					.build();
+
+			chatMessageManager.queue(QueuedMessage.builder()
+					.type(ChatMessageType.CONSOLE)
+					.runeLiteFormattedMessage(message)
+					.build());
+		}
+
+		if(backend instanceof DeepL)
+		{
+			((DeepL)backend).usage((characterCount, characterLimit) ->
+			{
+				String message = new ChatMessageBuilder().append(ChatColorType.NORMAL)
+						.append("Your current API usage is ")
+						.append(ChatColorType.HIGHLIGHT)
+						.append(Math.round(100f * ((float)characterCount / characterLimit)) + "%")
+						.append(ChatColorType.NORMAL)
+						.append(" of the monthly quota!")
+						.build();
+
+				chatMessageManager.queue(QueuedMessage.builder()
+						.type(ChatMessageType.CONSOLE)
+						.runeLiteFormattedMessage(message)
+						.build());
 			});
 		}
 	}
 
-	@Subscribe
-	public void onGameTick(GameTick event)
+	private void getWidget()
 	{
-		if(!config.toggle())
+		PolywoofUtils.Interface.CurrentWidget currentWidget = PolywoofUtils.Interface.getCurrentWidget(
+				client.getMouseCanvasPosition(),
+				client.getWidgetRoots(),
+				PolywoofUtils.Interface.Type.ROOT);
+
+		if(currentWidget.exists())
 		{
-			previous = null;
-			overlay.pop(null);
-			return;
+			String message = new ChatMessageBuilder().append(ChatColorType.NORMAL)
+					.append("[")
+					.append(ChatColorType.HIGHLIGHT)
+					.append(String.format(
+							"%s %d.%d",
+							currentWidget.type,
+							WidgetUtil.componentToInterface(currentWidget.widget.getId()),
+							WidgetUtil.componentToId(currentWidget.widget.getId())))
+					.append(ChatColorType.NORMAL)
+					.append(String.format("] «%s»", currentWidget.widget.getText()))
+					.build();
+
+			chatMessageManager.queue(QueuedMessage.builder()
+					.type(ChatMessageType.CONSOLE)
+					.runeLiteFormattedMessage(message)
+					.build());
 		}
-
-		String header, string;
-		PolywoofStorage.DataType type;
-
-		switch(dialogue)
-		{
-			case WidgetID.DIARY_QUEST_GROUP_ID:
-				if(!config.test() && !config.enableDiary())
-					return;
-
-				header = widgets[0].getText();
-				string = PolywoofFormatter.formatScrolls(widgets[1].getStaticChildren());
-				type = PolywoofStorage.DataType.QUEST_DIARY;
-				break;
-			case WidgetID.DIALOG_SPRITE_GROUP_ID:
-			case WidgetIDCustom.DIALOG_11:
-			case WidgetIDCustom.DIALOG_229:
-				header = null;
-				string = widgets[0].getText();
-				type = PolywoofStorage.DataType.DIALOGUE_TEXT;
-				break;
-			case WidgetID.CLUE_SCROLL_GROUP_ID:
-				if(!config.test() && !config.enableClues())
-					return;
-
-				header = null;
-				string = widgets[0].getText();
-				type = PolywoofStorage.DataType.VARIOUS_SCROLLS;
-				break;
-			case WidgetID.DIALOG_PLAYER_GROUP_ID:
-			case WidgetID.DIALOG_NPC_GROUP_ID:
-				header = widgets[0].getText();
-				string = widgets[1].getText();
-				type = PolywoofStorage.DataType.DIALOGUE_TEXT;
-				break;
-			case WidgetID.DIALOG_OPTION_GROUP_ID:
-				header = null;
-				string = PolywoofFormatter.formatOptions(widgets[0].getDynamicChildren());
-				type = PolywoofStorage.DataType.DIALOGUE_OPTIONS;
-				break;
-			case WidgetIDCustom.SCROLL_95:
-			case WidgetIDCustom.SCROLL_220:
-			case WidgetIDCustom.SCROLL_222:
-				if(!config.test() && !config.enableScrolls())
-					return;
-
-				header = null;
-				string = PolywoofFormatter.formatScrolls(widgets[0].getNestedChildren());
-				type = PolywoofStorage.DataType.VARIOUS_SCROLLS;
-				break;
-			case WidgetIDCustom.BOOK_392:
-				if(!config.test() && !config.enableBooks())
-					return;
-
-				header = widgets[0].getText();
-				string = PolywoofFormatter.formatScrolls(widgets[1].getStaticChildren(), widgets[2].getStaticChildren());
-				type = PolywoofStorage.DataType.VARIOUS_BOOKS;
-				break;
-			default:
-				return;
-		}
-
-		if(string.equals(previous))
-			return;
-
-		previous = string;
-		overlay.pop(null);
-
-		PolywoofFormatter.parser(string, PolywoofFormatter.dialogueEntries, replacement ->
-		{
-			PolywoofComponent.Subject subject = dialogueSubject(dialogue);
-
-			if(config.test())
-				overlay.set(null, PolywoofFormatter.filter(header), PolywoofFormatter.filter(replacement), subject);
-			else
-				translator.translate(replacement, PolywoofTranslator.languageFinder(config.language()), type, set -> overlay.set(null, PolywoofFormatter.filter(header), set, subject));
-		});
-	}
-
-	@Subscribe
-	public void onWidgetLoaded(WidgetLoaded event)
-	{
-		Widget[] loaded;
-
-		switch(event.getGroupId())
-		{
-			case WidgetID.DIARY_QUEST_GROUP_ID:
-				loaded = new Widget[] {client.getWidget(WidgetInfo.DIARY_QUEST_WIDGET_TITLE), client.getWidget(WidgetInfo.DIARY_QUEST_WIDGET_TEXT)};
-				break;
-			case WidgetID.DIALOG_SPRITE_GROUP_ID:
-				loaded = new Widget[] {client.getWidget(WidgetInfo.DIALOG_SPRITE_TEXT)};
-				break;
-			case WidgetID.CLUE_SCROLL_GROUP_ID:
-				loaded = new Widget[] {client.getWidget(WidgetInfo.CLUE_SCROLL_TEXT)};
-				break;
-			case WidgetID.DIALOG_PLAYER_GROUP_ID:
-				loaded = new Widget[] {client.getWidget(event.getGroupId(), 4), client.getWidget(WidgetInfo.DIALOG_PLAYER_TEXT)};
-				break;
-			case WidgetID.DIALOG_OPTION_GROUP_ID:
-				loaded = new Widget[] {client.getWidget(WidgetInfo.DIALOG_OPTION_OPTIONS)};
-				break;
-			case WidgetID.DIALOG_NPC_GROUP_ID:
-				loaded = new Widget[] {client.getWidget(WidgetInfo.DIALOG_NPC_NAME), client.getWidget(WidgetInfo.DIALOG_NPC_TEXT)};
-				break;
-			case WidgetIDCustom.DIALOG_11:
-				loaded = new Widget[] {client.getWidget(event.getGroupId(), 2)};
-				break;
-			case WidgetIDCustom.SCROLL_95:
-			case WidgetIDCustom.SCROLL_220:
-			case WidgetIDCustom.SCROLL_222:
-				loaded = new Widget[] {client.getWidget(WidgetID.RESIZABLE_VIEWPORT_OLD_SCHOOL_BOX_GROUP_ID, 16)};
-				break;
-			case WidgetIDCustom.DIALOG_229:
-				loaded = new Widget[] {client.getWidget(event.getGroupId(), 1)};
-				break;
-			case WidgetIDCustom.BOOK_392:
-				loaded = new Widget[] {client.getWidget(event.getGroupId(), 6), client.getWidget(event.getGroupId(), 43), client.getWidget(event.getGroupId(), 59)};
-				break;
-			default:
-				return;
-		}
-
-		for(Widget widget : loaded)
-			if(widget == null)
-				return;
-
-		widgets = loaded;
-		dialogue = event.getGroupId();
-	}
-
-	@Subscribe
-	public void onWidgetClosed(WidgetClosed event)
-	{
-		switch(event.getGroupId())
-		{
-			case WidgetID.DIARY_QUEST_GROUP_ID:
-			case WidgetID.DIALOG_SPRITE_GROUP_ID:
-			case WidgetID.CLUE_SCROLL_GROUP_ID:
-			case WidgetID.DIALOG_PLAYER_GROUP_ID:
-			case WidgetID.DIALOG_OPTION_GROUP_ID:
-			case WidgetID.DIALOG_NPC_GROUP_ID:
-			case WidgetIDCustom.DIALOG_11:
-			case WidgetIDCustom.SCROLL_95:
-			case WidgetIDCustom.SCROLL_220:
-			case WidgetIDCustom.SCROLL_222:
-			case WidgetIDCustom.DIALOG_229:
-			case WidgetIDCustom.BOOK_392:
-				dialogue = 0;
-				previous = null;
-				overlay.pop(null);
-				break;
-		}
-	}
-
-	public void showUsage()
-	{
-		translator.usage((characterCount, characterLimit) ->
-		{
-			String message = new ChatMessageBuilder()
-				.append(ChatColorType.NORMAL)
-				.append("Your current DeepL API usage is ")
-				.append(ChatColorType.HIGHLIGHT)
-				.append(Math.round(100f * ((float) characterCount / characterLimit)) + "%")
-				.append(ChatColorType.NORMAL)
-				.append(" of the monthly quota!")
-				.build();
-
-			chatMessageManager.queue(QueuedMessage.builder().type(ChatMessageType.CONSOLE).runeLiteFormattedMessage(message).build());
-		});
-	}
-
-	private PolywoofComponent.Subject dialogueSubject(int dialogue)
-	{
-		if(dialogue == WidgetID.DIALOG_OPTION_GROUP_ID)
-			return config.numberedOptions() ? PolywoofComponent.Subject.NUMBERED : PolywoofComponent.Subject.OPTIONS;
-
-		return dialogueSubject();
-	}
-
-	private PolywoofComponent.Subject dialogueSubject()
-	{
-		return config.sourceName() ? PolywoofComponent.Subject.HEADER : PolywoofComponent.Subject.NONE;
-	}
-
-	public static class WidgetIDCustom
-	{
-		public static final int DIALOG_11 = 11;
-		public static final int SCROLL_95 = 95;
-		public static final int SCROLL_220 = 220;
-		public static final int SCROLL_222 = 222;
-		public static final int DIALOG_229 = 229;
-		public static final int BOOK_392 = 392;
 	}
 }

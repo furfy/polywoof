@@ -1,69 +1,102 @@
 package com.polywoof;
 
-import lombok.AccessLevel;
-import lombok.AllArgsConstructor;
+import com.polywoof.api.API;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.client.RuneLite;
 import org.h2.engine.Constants;
 import org.h2.jdbcx.JdbcDataSource;
 
-import javax.annotation.Nullable;
 import javax.annotation.ParametersAreNonnullByDefault;
 import java.io.File;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
+import java.util.List;
 
-@Slf4j
-@ParametersAreNonnullByDefault
-public class PolywoofStorage implements AutoCloseable
+@Slf4j @ParametersAreNonnullByDefault public class PolywoofStorage implements AutoCloseable
 {
-	private final Executor executor = Executors.newSingleThreadExecutor();
+	private static final int revision = 2;
 	private final JdbcDataSource data = new JdbcDataSource();
 	private Connection db;
 
-	public PolywoofStorage(File file)
+	public PolywoofStorage(String name)
 	{
-		String path = file.getPath();
-
-		if(path.endsWith(Constants.SUFFIX_MV_FILE))
-			path = path.substring(0, path.length() - Constants.SUFFIX_MV_FILE.length());
-
-		this.data.setURL(Constants.START_URL + path);
+		this.data.setURL(Constants.START_URL + new File(RuneLite.CACHE_DIR, name).getPath());
 	}
 
 	public void open()
 	{
 		if(status())
+		{
 			return;
+		}
 
-		executor.execute(() ->
+		PolywoofPlugin.executor.execute(() ->
 		{
 			try
 			{
-				Connection connection = data.getConnection();
+				Connection db = data.getConnection();
 
-				for(DataType type : DataType.values())
+				try
 				{
-					try(PreparedStatement create = connection.prepareStatement(String.format("CREATE TABLE IF NOT EXISTS `%1$s` (OSRS VARCHAR(%2$s) PRIMARY KEY)", type, type.size)))
+					try(PreparedStatement statement = db.prepareStatement("create table if not exists" +
+							"\nINFORMATION_SCHEMA.PROPERTIES (PROPERTY_NAME varchar(256) primary key, PROPERTY_VALUE varchar(256) not null)"))
 					{
-						create.executeUpdate();
+						statement.executeUpdate();
 					}
-					catch(SQLException error)
-					{
-						log.error("Failed to prepare the database", error);
-						connection.close();
-						return;
-					}
-				}
 
-				db = connection;
+					try(PreparedStatement preparedStatement = db.prepareStatement("select * from" +
+							"\nINFORMATION_SCHEMA.PROPERTIES where PROPERTY_NAME = ? and PROPERTY_VALUE >= ?"))
+					{
+						preparedStatement.setString(1, "dictionary.revision");
+						preparedStatement.setString(2, String.valueOf(revision));
+
+						if(!preparedStatement.executeQuery().next())
+						{
+							try(PreparedStatement statement = db.prepareStatement("drop schema if exists" +
+									"\nDICTIONARY cascade"))
+							{
+								statement.executeUpdate();
+							}
+
+							try(PreparedStatement statement = db.prepareStatement("merge into" +
+									"\nINFORMATION_SCHEMA.PROPERTIES values(?, ?)"))
+							{
+								statement.setString(1, "dictionary.revision");
+								statement.setString(2, String.valueOf(revision));
+								statement.executeUpdate();
+							}
+						}
+					}
+
+					try(PreparedStatement statement = db.prepareStatement("create schema if not exists" +
+							"\nDICTIONARY"))
+					{
+						statement.executeUpdate();
+					}
+
+					for(API.GameText.Type type : API.GameText.Type.values())
+					{
+						try(PreparedStatement statement = db.prepareStatement(String.format("create table if not exists" +
+								"\nDICTIONARY.%1$s (GAME varchar(%2$s) primary key)", type, type.size)))
+						{
+							statement.executeUpdate();
+						}
+					}
+
+					this.db = db;
+					log.info("Storage is opened successfully");
+				}
+				catch(SQLException error)
+				{
+					db.close();
+					throw error;
+				}
 			}
 			catch(SQLException error)
 			{
-				log.error("Failed to open the database", error);
+				log.error("Failed to open storage", error);
 			}
 		});
 	}
@@ -71,86 +104,114 @@ public class PolywoofStorage implements AutoCloseable
 	public void close()
 	{
 		if(!status())
+		{
 			return;
+		}
 
-		executor.execute(() ->
+		PolywoofPlugin.executor.execute(() ->
 		{
 			try
 			{
 				db.close();
+				log.info("Storage is closed successfully");
 			}
 			catch(SQLException error)
 			{
-				log.error("Failed to close the database", error);
+				log.error("Failed to close storage", error);
 			}
 		});
 	}
 
-	public void select(String key, Language column, DataType table, @Nullable Selectable callback)
+	public void select(List<API.GameText> textList, API.Language language, Queryable queryable)
 	{
 		if(!status())
-			return;
-
-		executor.execute(() ->
 		{
-			try(PreparedStatement schema = db.prepareStatement("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=? AND COLUMN_NAME=?"))
-			{
-				schema.setString(1, table.toString());
-				schema.setString(2, column.toString());
+			return;
+		}
 
-				if(!schema.executeQuery().next())
+		PolywoofPlugin.executor.execute(() ->
+		{
+			for(API.GameText gameText : textList)
+			{
+				if(gameText.cache)
 				{
-					if(callback != null)
-						callback.select(null);
-					return;
+					continue;
 				}
 
-				try(PreparedStatement select = db.prepareStatement(String.format("SELECT `%2$s` FROM `%1$s` WHERE OSRS=? AND `%2$s` IS NOT NULL", table, column)))
+				try(PreparedStatement preparedStatement = db.prepareStatement("select * from" +
+						"\nINFORMATION_SCHEMA.COLUMNS where TABLE_SCHEMA = ? and TABLE_NAME = ? and COLUMN_NAME = ?"))
 				{
-					select.setString(1, key);
+					preparedStatement.setString(1, "DICTIONARY");
+					preparedStatement.setString(2, gameText.type.toString());
+					preparedStatement.setString(3, language.code);
 
-					ResultSet result = select.executeQuery();
-					String string = null;
+					if(preparedStatement.executeQuery().next())
+					{
+						try(PreparedStatement statement = db.prepareStatement(String.format("select `%2$s` from" +
+								"\nDICTIONARY.%1$s where GAME = ? and `%2$s` is not null", gameText.type, language.code)))
+						{
+							log.debug("Selecting {} from storage", language.name);
 
-					if(result.next())
-						string = result.getString(column.toString());
+							statement.setString(1, gameText.game);
+							ResultSet resultSet = statement.executeQuery();
 
-					if(callback != null)
-						callback.select(string);
+							if(resultSet.next())
+							{
+								gameText.text = resultSet.getString(language.code);
+								gameText.cache = true;
+							}
+						}
+					}
+				}
+				catch(SQLException error)
+				{
+					log.error("Failed to select from storage", error);
 				}
 			}
-			catch(SQLException error)
-			{
-				log.error("Failed to select from the database", error);
-			}
+
+			queryable.query();
 		});
 	}
 
-	public void insert(String string, String key, Language column, DataType table, @Nullable Insertable callback)
+	public void insert(List<API.GameText> textList, API.Language language, Queryable queryable)
 	{
 		if(!status())
-			return;
-
-		executor.execute(() ->
 		{
-			try(PreparedStatement update = db.prepareStatement(String.format("ALTER TABLE `%1$s` ADD IF NOT EXISTS `%3$s` VARCHAR(%2$s)", table, table.size, column)))
+			return;
+		}
+
+		PolywoofPlugin.executor.execute(() ->
+		{
+			for(API.GameText gameText : textList)
 			{
-				update.executeUpdate();
-
-				try(PreparedStatement insert = db.prepareStatement(String.format("MERGE INTO `%1$s` (OSRS, `%2$s`) VALUES(?, ?)", table, column)))
+				if(!gameText.cache)
 				{
-					insert.setString(1, key);
-					insert.setString(2, string);
-					insert.executeUpdate();
+					try
+					{
+						try(PreparedStatement statement = db.prepareStatement(String.format("alter table" +
+								"\nDICTIONARY.%1$s add if not exists `%3$s` varchar(%2$s)", gameText.type, gameText.type.size, language.code)))
+						{
+							statement.executeUpdate();
+						}
 
-					if(callback != null)
-						callback.insert();
+						try(PreparedStatement statement = db.prepareStatement(String.format("merge into" +
+								"\nDICTIONARY.%1$s (GAME, `%2$s`) values(?, ?)", gameText.type, language.code)))
+						{
+							log.debug("Inserting {} into storage", language.name);
+
+							statement.setString(1, gameText.game);
+							statement.setString(2, gameText.text);
+							statement.executeUpdate();
+						}
+					}
+					catch(SQLException error)
+					{
+						log.error("Failed to insert into storage", error);
+					}
 				}
 			}
-			catch(SQLException error)
-			{
-				log.error("Failed to insert into the database", error);
-			}
+
+			queryable.query();
 		});
 	}
 
@@ -162,53 +223,14 @@ public class PolywoofStorage implements AutoCloseable
 		}
 		catch(SQLException error)
 		{
-			log.error("Failed to check the database", error);
+			log.error("Failed to check storage", error);
 		}
 
 		return false;
 	}
 
-	@AllArgsConstructor(access = AccessLevel.PRIVATE)
-	public enum DataType
+	public interface Queryable
 	{
-		CHAT_MESSAGES(256),
-		ANY_EXAMINE(256),
-		OVERHEAD_TEXT(256),
-		DIALOGUE_TEXT(512),
-		DIALOGUE_OPTIONS(512),
-		VARIOUS_SCROLLS(1024),
-		VARIOUS_BOOKS(2048),
-		QUEST_DIARY(2048);
-
-		public final int size;
-
-		@Override
-		public String toString()
-		{
-			return name();
-		}
-	}
-
-	interface Selectable
-	{
-		void select(@Nullable String string);
-	}
-
-	interface Insertable
-	{
-		void insert();
-	}
-
-	@AllArgsConstructor(access = AccessLevel.PROTECTED)
-	public static class Language
-	{
-		public final String code;
-		public final String name;
-
-		@Override
-		public String toString()
-		{
-			return code;
-		}
+		void query();
 	}
 }

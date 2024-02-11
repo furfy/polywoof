@@ -13,22 +13,22 @@ repositories {
 def runeLiteVersion = 'latest.release'
 
 dependencies {
-	compileOnly group: 'net.runelite', name:'client', version: runeLiteVersion
+	compileOnly group: 'net.runelite', name: 'client', version: runeLiteVersion
 
-	compileOnly 'org.projectlombok:lombok:1.18.20'
-	annotationProcessor 'org.projectlombok:lombok:1.18.20'
+	compileOnly 'org.projectlombok:lombok:1.18.30'
+	annotationProcessor 'org.projectlombok:lombok:1.18.30'
 
-	testImplementation 'junit:junit:4.13.1'
-	testImplementation group: 'net.runelite', name:'client', version: runeLiteVersion
-	testImplementation group: 'net.runelite', name:'jshell', version: runeLiteVersion
+	testImplementation 'junit:junit:4.13.2'
+	testImplementation group: 'net.runelite', name: 'client', version: runeLiteVersion
+	testImplementation group: 'net.runelite', name: 'jshell', version: runeLiteVersion
 
-	implementation 'com.h2database:h2:2.2.220'
+	implementation 'com.h2database:h2:2.1.214'
 }
 
 group = 'com.polywoof'
-version = '1.3'
-sourceCompatibility = '1.8'
+version = '2.00'
 
 tasks.withType(JavaCompile) {
 	options.encoding = 'UTF-8'
+	options.release.set(11)
 }

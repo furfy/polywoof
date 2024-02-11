@@ -72,6 +72,11 @@
 	{
 		"language": "JA",
 		"name": "Japanese",
+		"supports_formality": true
+	},
+	{
+		"language": "KO",
+		"name": "Korean",
 		"supports_formality": false
 	},
 	{
@@ -82,6 +87,11 @@
 	{
 		"language": "LV",
 		"name": "Latvian",
+		"supports_formality": false
+	},
+	{
+		"language": "NB",
+		"name": "Norwegian",
 		"supports_formality": false
 	},
 	{

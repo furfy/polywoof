@@ -1,115 +1,75 @@
 package com.polywoof;
 
-import lombok.Getter;
-import lombok.Setter;
+import com.polywoof.api.API;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.ui.JagexColors;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.RenderableEntity;
 import net.runelite.client.ui.overlay.components.ComponentConstants;
 
-import javax.annotation.Nullable;
 import javax.annotation.ParametersAreNonnullByDefault;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
-@Slf4j
-@ParametersAreNonnullByDefault
-public class PolywoofComponent implements RenderableEntity
+@Slf4j @ParametersAreNonnullByDefault public class PolywoofComponent implements RenderableEntity
 {
-	@Setter private static int textWrap;
-	@Setter private static boolean textShadow;
-	@Setter private static boolean boxOutline;
-	@Setter private static Color backgroundColor = ComponentConstants.STANDARD_BACKGROUND_COLOR;
-	@Setter @Getter private static Alignment alignment = Alignment.BOTTOM_LEFT;
-	@Setter @Getter private static Behaviour behaviour = Behaviour.DEFAULT;
+	public static int textWrap;
+	public static boolean textShadow;
+	public static boolean boxOutline;
+	public static Color backgroundColor = ComponentConstants.STANDARD_BACKGROUND_COLOR;
+	public static Behaviour behaviour = Behaviour.DEFAULT;
+	public static OverlayPosition position = OverlayPosition.BOTTOM_LEFT;
 
 	private final Rectangle rectangle = new Rectangle();
-	private final List<List<String>> paragraphs = new ArrayList<>(10);
-	private final String header;
-	private final String string;
+	private final List<API.GameText> textList;
+	private final List<TextWrapped> textWrappedList;
 	private Font font;
-	private Subject subject;
 	private AlphaComposite composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER);
-	private boolean revalidate;
+	private boolean refresh = true;
 
-	public PolywoofComponent(@Nullable String header, String string, Font font, Subject subject)
+	public PolywoofComponent(List<API.GameText> textList, Font font)
 	{
-		if(header != null && header.isEmpty())
-			header = null;
-
-		if(header == null && subject == Subject.HEADER)
-			subject = Subject.NONE;
-
-		this.header = header;
-		this.string = string;
+		this.textList = textList;
 		this.font = font;
-		this.subject = subject;
-
-		revalidate();
+		textWrappedList = new ArrayList<>(textList.size());
 	}
 
-	public static void setPosition(OverlayPosition position)
+	@Override public Dimension render(Graphics2D graphics)
 	{
+		update(graphics);
+
+		int x = 0, y = 0, offset = 0;
+
 		switch(position)
-		{
-			case TOP_LEFT:
-				setAlignment(Alignment.TOP_LEFT);
-				break;
-			case TOP_CENTER:
-				setAlignment(Alignment.TOP_CENTER);
-				break;
-			case TOP_RIGHT:
-			case CANVAS_TOP_RIGHT:
-				setAlignment(Alignment.TOP_RIGHT);
-				break;
-			case BOTTOM_LEFT:
-				setAlignment(Alignment.BOTTOM_LEFT);
-				break;
-			default:
-			case ABOVE_CHATBOX_RIGHT:
-				setAlignment(Alignment.BOTTOM_CENTER);
-				break;
-			case BOTTOM_RIGHT:
-				setAlignment(Alignment.BOTTOM_RIGHT);
-				break;
-		}
-	}
-
-	@Override
-	public Dimension render(Graphics2D graphics)
-	{
-		if(revalidate)
-			update(graphics);
-
-		int x = 0, y = 0;
-
-		switch(alignment)
 		{
 			case TOP_LEFT:
 			case BOTTOM_LEFT:
 				x = rectangle.x;
 				break;
 			case TOP_CENTER:
-			case BOTTOM_CENTER:
+			case ABOVE_CHATBOX_RIGHT:
 				x = rectangle.x - rectangle.width / 2;
 				break;
 			case TOP_RIGHT:
+			case CANVAS_TOP_RIGHT:
 			case BOTTOM_RIGHT:
 				x = rectangle.x - rectangle.width;
 				break;
 		}
 
-		switch(alignment)
+		switch(position)
 		{
 			case TOP_LEFT:
 			case TOP_RIGHT:
+			case CANVAS_TOP_RIGHT:
 			case TOP_CENTER:
 				y = rectangle.y;
 				break;
 			case BOTTOM_LEFT:
-			case BOTTOM_CENTER:
+			case ABOVE_CHATBOX_RIGHT:
 			case BOTTOM_RIGHT:
 				y = rectangle.y - rectangle.height;
 				break;
@@ -128,81 +88,99 @@ public class PolywoofComponent implements RenderableEntity
 			graphics.drawRect(x + 1, y + 1, rectangle.width - 3, rectangle.height - 3);
 		}
 
-		int offset = 0;
-		boolean plain = subject == Subject.NONE;
 		FontMetrics metrics = graphics.getFontMetrics(font);
 
-		for(List<String> paragraph : paragraphs)
+		for(TextWrapped textWrapped : textWrappedList)
 		{
-			for(String line : paragraph)
+			for(String text : textWrapped.wrapped)
 			{
-				switch(alignment)
+				switch(position)
 				{
 					case TOP_LEFT:
 					case BOTTOM_LEFT:
-						if(plain)
-							switch(behaviour)
-							{
-								default:
-									x = rectangle.x + metrics.getDescent() * 2;
-									break;
-								case FORCE_CENTER:
-									x = rectangle.x + rectangle.width / 2 - metrics.stringWidth(line) / 2;
-									break;
-								case FORCE_RIGHT:
-									x = rectangle.x + rectangle.width - metrics.getDescent() * 2 - metrics.stringWidth(line);
-									break;
-							}
-						else
-							x = rectangle.x + rectangle.width / 2 - metrics.stringWidth(line) / 2;
+						switch(textWrapped.text.type)
+						{
+							case TITLE:
+							case OVERHEAD:
+							case OPTION:
+								x = rectangle.x + rectangle.width / 2 - metrics.stringWidth(text) / 2;
+								break;
+							default:
+								switch(behaviour)
+								{
+									default:
+										x = rectangle.x + metrics.getDescent() * 2;
+										break;
+									case FORCE_CENTER:
+										x = rectangle.x + rectangle.width / 2 - metrics.stringWidth(text) / 2;
+										break;
+									case FORCE_RIGHT:
+										x = rectangle.x + rectangle.width - metrics.getDescent() * 2 - metrics.stringWidth(text);
+										break;
+								}
+						}
 						break;
 					case TOP_CENTER:
-					case BOTTOM_CENTER:
-						if(plain)
-							switch(behaviour)
-							{
-								case FORCE_LEFT:
-									x = rectangle.x - rectangle.width / 2 + metrics.getDescent() * 2;
-									break;
-								default:
-									x = rectangle.x - metrics.stringWidth(line) / 2;
-									break;
-								case FORCE_RIGHT:
-									x = rectangle.x + rectangle.width / 2 - metrics.getDescent() * 2 - metrics.stringWidth(line);
-									break;
-							}
-						else
-							x = rectangle.x - metrics.stringWidth(line) / 2;
+					case ABOVE_CHATBOX_RIGHT:
+						switch(textWrapped.text.type)
+						{
+							case TITLE:
+							case OVERHEAD:
+							case OPTION:
+								x = rectangle.x - metrics.stringWidth(text) / 2;
+								break;
+							default:
+								switch(behaviour)
+								{
+									case FORCE_LEFT:
+										x = rectangle.x - rectangle.width / 2 + metrics.getDescent() * 2;
+										break;
+									default:
+										x = rectangle.x - metrics.stringWidth(text) / 2;
+										break;
+									case FORCE_RIGHT:
+										x = rectangle.x + rectangle.width / 2 - metrics.getDescent() * 2 - metrics.stringWidth(text);
+										break;
+								}
+						}
 						break;
 					case TOP_RIGHT:
+					case CANVAS_TOP_RIGHT:
 					case BOTTOM_RIGHT:
-						if(plain)
-							switch(behaviour)
-							{
-								case FORCE_LEFT:
-									x = rectangle.x - rectangle.width + metrics.getDescent() * 2;
-									break;
-								case FORCE_CENTER:
-									x = rectangle.x - rectangle.width / 2 - metrics.stringWidth(line) / 2;
-									break;
-								default:
-									x = rectangle.x - metrics.getDescent() * 2 - metrics.stringWidth(line);
-									break;
-							}
-						else
-							x = rectangle.x - rectangle.width / 2 - metrics.stringWidth(line) / 2;
+						switch(textWrapped.text.type)
+						{
+							case TITLE:
+							case OVERHEAD:
+							case OPTION:
+								x = rectangle.x - rectangle.width / 2 - metrics.stringWidth(text) / 2;
+								break;
+							default:
+								switch(behaviour)
+								{
+									case FORCE_LEFT:
+										x = rectangle.x - rectangle.width + metrics.getDescent() * 2;
+										break;
+									case FORCE_CENTER:
+										x = rectangle.x - rectangle.width / 2 - metrics.stringWidth(text) / 2;
+										break;
+									default:
+										x = rectangle.x - metrics.getDescent() * 2 - metrics.stringWidth(text);
+										break;
+								}
+						}
 						break;
 				}
 
-				switch(alignment)
+				switch(position)
 				{
 					case TOP_LEFT:
 					case TOP_RIGHT:
+					case CANVAS_TOP_RIGHT:
 					case TOP_CENTER:
 						y = rectangle.y + metrics.getDescent() * 2 + offset + metrics.getAscent();
 						break;
 					case BOTTOM_LEFT:
-					case BOTTOM_CENTER:
+					case ABOVE_CHATBOX_RIGHT:
 					case BOTTOM_RIGHT:
 						y = rectangle.y + metrics.getDescent() * 2 + offset + metrics.getAscent() - rectangle.height;
 						break;
@@ -211,77 +189,94 @@ public class PolywoofComponent implements RenderableEntity
 				if(textShadow)
 				{
 					graphics.setColor(Color.BLACK);
-					graphics.drawString(line, x + 1, y + 1);
+					graphics.drawString(text, x + 1, y + 1);
 				}
 
-				graphics.setColor(plain ? Color.WHITE : JagexColors.MENU_TARGET);
-				graphics.drawString(line, x, y);
+				switch(textWrapped.text.type)
+				{
+					case TITLE:
+						graphics.setColor(JagexColors.DARK_ORANGE_INTERFACE_TEXT);
+						break;
+					case EXAMINE:
+						graphics.setColor(Color.LIGHT_GRAY);
+						break;
+					case OVERHEAD:
+						graphics.setColor(JagexColors.YELLOW_INTERFACE_TEXT);
+						break;
+					default:
+						graphics.setColor(Color.WHITE);
+						break;
+				}
+
+				graphics.drawString(text, x, y);
 
 				offset += metrics.getAscent() + metrics.getDescent();
 			}
 
-			offset += metrics.getDescent() * ((subject == Subject.NONE || subject == Subject.HEADER) && plain ? 1f : 0.5f);
-			plain = true;
+			offset += metrics.getDescent();
 		}
 
 		return rectangle.getSize();
 	}
 
-	public Dimension update(Graphics2D graphics)
+	private void update(Graphics2D graphics)
 	{
-		if(!revalidate)
-			return rectangle.getSize();
+		if(refresh)
+		{
+			refresh = false;
+		}
+		else
+		{
+			return;
+		}
 
-		revalidate = false;
-		paragraphs.clear();
 		rectangle.setSize(0, 0);
+		textWrappedList.clear();
 
-		int index = -1;
 		FontMetrics metrics = graphics.getFontMetrics(font);
 
-		for(String split : (subject == Subject.HEADER ? String.format("%s\n%s", header, string) : string).split("\n"))
+		for(API.GameText gameText : textList)
 		{
-			List<String> paragraph = new ArrayList<>(10);
+			List<String> test = new ArrayList<>();
+			test.add(gameText.text);
 
-			if(subject == Subject.NUMBERED && ++index != 0)
-				paragraph.add(String.format("%d. %s", index, split));
-			else
-				paragraph.add(split);
-
-			for(int i = 0; i < paragraph.size(); i++)
+			for(int i = 0; i < test.size(); i++)
 			{
-				String line = paragraph.get(i);
+				String text = test.get(i);
 
-				if(metrics.stringWidth(line) <= textWrap - metrics.getDescent() * 4)
+				if(metrics.stringWidth(text) <= textWrap - metrics.getDescent() * 4)
 				{
-					rectangle.width = Math.max(rectangle.width, metrics.stringWidth(line));
+					rectangle.width = Math.max(rectangle.width, metrics.stringWidth(text));
 					continue;
 				}
 
 				int wrap = 0, word = 0;
 
-				for(int j = 0; j < line.length(); j++)
+				for(int j = 0; j < text.length(); j++)
 				{
-					if(metrics.charsWidth(line.toCharArray(), 0, j + 1) > textWrap - metrics.getDescent() * 4)
+					if(metrics.charsWidth(text.toCharArray(), 0, j + 1) > textWrap - metrics.getDescent() * 4)
 					{
 						int cut = Math.min(wrap, word);
 
 						if(cut == 0 && (cut = Math.max(wrap, word)) == 0)
+						{
 							break;
+						}
 
-						String begin = line.substring(0, cut);
-						String end = line.substring(cut);
-
-						paragraph.set(i, begin);
+						String begin = text.substring(0, cut);
+						String end = text.substring(cut);
+						test.set(i, begin);
 
 						if(!end.isEmpty())
-							paragraph.add(i + 1, end);
+						{
+							test.add(i + 1, end);
+						}
 
 						rectangle.width = Math.max(rectangle.width, metrics.stringWidth(begin));
 						break;
 					}
 
-					switch(line.charAt(j))
+					switch(text.charAt(j))
 					{
 						case ' ':
 						case '.':
@@ -299,24 +294,19 @@ public class PolywoofComponent implements RenderableEntity
 				}
 			}
 
-			rectangle.height += metrics.getAscent() * paragraph.size() + metrics.getDescent() * (paragraph.size() - 1);
-			paragraphs.add(paragraph);
+			rectangle.height += metrics.getAscent() * test.size() + metrics.getDescent() * (test.size() - 1);
+			textWrappedList.add(new TextWrapped(gameText, test));
 		}
 
-		if(paragraphs.size() > 1)
+		if(textWrappedList.size() > 1)
 		{
-			if(subject == Subject.HEADER)
-				rectangle.height -= metrics.getDescent() * 0.5f;
-
-			rectangle.height += metrics.getDescent() * (subject == Subject.NONE || subject == Subject.HEADER ? 2f : 1.5f) * (paragraphs.size() - 1);
+			rectangle.height += metrics.getDescent() * 2 * (textWrappedList.size() - 1);
 		}
 
 		rectangle.width += metrics.getDescent() * 4;
 		rectangle.height += metrics.getDescent() * 4;
 
-		log.debug("[{}x{}]", rectangle.width, rectangle.height);
-
-		return rectangle.getSize();
+		log.debug("Component is set to {}x{}", rectangle.width, rectangle.height);
 	}
 
 	public void setLocation(int x, int y)
@@ -326,46 +316,22 @@ public class PolywoofComponent implements RenderableEntity
 
 	public void setFontSize(int size)
 	{
-		if(size == font.getSize())
-			return;
-
-		font = font.deriveFont((float) size);
+		if(font.getSize() != size)
+		{
+			font = font.deriveFont((float)size);
+			refresh = true;
+		}
 	}
 
-	public void setHeaderSubject(boolean toggle)
-	{
-		if(header == null || subject == Subject.OPTIONS || subject == Subject.NUMBERED)
-			return;
-
-		subject = toggle ? Subject.HEADER : Subject.NONE;
-	}
-
-	public void setNumberedSubject(boolean toggle)
-	{
-		if(subject == Subject.NONE || subject == Subject.HEADER)
-			return;
-
-		subject = toggle ? Subject.NUMBERED : Subject.OPTIONS;
-	}
-
-	public void setAlpha(float opacity)
+	public void setOpacity(float opacity)
 	{
 		composite = composite.derive(opacity);
 	}
 
-	public void revalidate()
+	@AllArgsConstructor(access = AccessLevel.PRIVATE) private static class TextWrapped
 	{
-		revalidate = true;
-	}
-
-	public enum Alignment
-	{
-		TOP_LEFT,
-		TOP_CENTER,
-		TOP_RIGHT,
-		BOTTOM_LEFT,
-		BOTTOM_CENTER,
-		BOTTOM_RIGHT
+		public final API.GameText text;
+		public final List<String> wrapped;
 	}
 
 	public enum Behaviour
@@ -374,13 +340,5 @@ public class PolywoofComponent implements RenderableEntity
 		FORCE_LEFT,
 		FORCE_CENTER,
 		FORCE_RIGHT
-	}
-
-	public enum Subject
-	{
-		NONE,
-		HEADER,
-		OPTIONS,
-		NUMBERED
 	}
 }

@@ -5,183 +5,316 @@ import net.runelite.client.ui.overlay.components.ComponentConstants;
 
 import java.awt.*;
 
-@ConfigGroup("polywoof")
-public interface PolywoofConfig extends Config
+@ConfigGroup("polywoof") public interface PolywoofConfig extends Config
 {
-	@ConfigSection(name = "Primary", description = "Most important", position = 0)
-	String primarySection = "primarySection";
+	@ConfigItem(
+			keyName = "toggle",
+			name = "",
+			description = "")
+	void toggle(boolean toggle);
 
-	@ConfigSection(name = "Translation", description = "What will be translated", position = 1)
-	String translationSection = "translationSection";
-
-	@ConfigSection(name = "Visual", description = "Font and visual appearance", position = 2)
-	String visualSection = "visualSection";
-
-	@ConfigSection(name = "Formatting", description = "Text formatting", position = 3)
-	String formattingSection = "formattingSection";
-
-	@ConfigItem(keyName = "toggle", name = "", description = "", hidden = true)
+	@ConfigItem(
+			keyName = "toggle",
+			name = "",
+			description = "",
+			hidden = true)
 	default boolean toggle()
 	{
 		return true;
 	}
 
-	@ConfigItem(keyName = "toggle", name = "", description = "")
-	void toggle(boolean toggle);
+	@ConfigSection(
+			name = "General",
+			description = "Settings for overall experience",
+			position = 0)
+	String generalSection = "generalSection";
 
-	/*
-		Primary
-	 */
+	@ConfigItem(
+			keyName = "backend",
+			name = "Service",
+			description = "Choose the backend for translation",
+			section = generalSection,
+			position = 0)
+	default TranslationBackend backend()
+	{
+		return TranslationBackend.DEEPL;
+	}
 
-	@ConfigItem(keyName = "language", name = "Target Language", description = "Type your desired one, «ru» for russian, «fr» french, etc", section = primarySection, position = 0)
+	@ConfigItem(
+			keyName = "language",
+			name = "Language",
+			description = "Type your desired language",
+			section = generalSection,
+			position = 1)
 	default String language()
 	{
 		return "ru";
 	}
 
-	@ConfigItem(keyName = "key", name = "DeepL API Key", description = "This is REQUIRED, see www.DeepL.com", secret = true, section = primarySection, position = 1)
+	@ConfigItem(
+			keyName = "key",
+			name = "API Key",
+			description = "This is REQUIRED for the DeepL, see www.DeepL.com",
+			secret = true,
+			section = generalSection,
+			position = 2)
 	default String key()
 	{
 		return "";
 	}
 
-	@Range(min = 1, max = 99)
-	@ConfigItem(keyName = "readingSpeed", name = "Reading Skill", description = "How quickly do you read", section = primarySection, position = 2)
+	@Range(min = 1, max = 99) @ConfigItem(
+			keyName = "readingSpeed",
+			name = "Reading Skill",
+			description = "Your reading skill level",
+			section = generalSection,
+			position = 3)
 	default int readingSpeed()
 	{
 		return 10;
 	}
 
-	@ConfigItem(keyName = "showUsage", name = "Show API Usage", description = "See your monthly usage on logon", section = primarySection, position = 3)
+	@ConfigItem(
+			keyName = "showUsage",
+			name = "Show API Usage",
+			description = "Show your monthly usage in the chat on logon",
+			section = generalSection,
+			position = 4)
 	default boolean showUsage()
 	{
 		return true;
 	}
 
-	@ConfigItem(keyName = "showButton", name = "Show Button", description = "Quality of life feature", section = primarySection, position = 4)
+	@ConfigItem(
+			keyName = "showTitle",
+			name = "Show Title",
+			description = "Title with the context where text came from",
+			section = generalSection,
+			position = 5)
+	default boolean showTitle()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+			keyName = "showButton",
+			name = "Quick Actions",
+			description = "Translucent button near translation popups for quick actions",
+			section = generalSection,
+			position = 6)
 	default boolean showButton()
 	{
 		return true;
 	}
 
-	@ConfigItem(keyName = "test", name = "Test Mode", description = "It makes everything useless", warning = "Are you sure you want to toggle the translation?", section = primarySection, position = 5)
-	default boolean test()
+	@ConfigSection(
+			name = "Translation",
+			description = "Things to be translated",
+			position = 1)
+	String translationSection = "translationSection";
+
+	@ConfigItem(
+			keyName = "keepTitle",
+			name = "Keep Title",
+			description = "Keep context titles as it is",
+			section = translationSection,
+			position = 0)
+	default boolean keepTitle()
 	{
 		return false;
 	}
 
-	/*
-		Translation
-	 */
-
-	@ConfigItem(keyName = "enableMessages", name = "Chat Messages", description = "Translate chat messages", section = translationSection, position = 0)
-	default boolean enableMessages()
+	@ConfigItem(
+			keyName = "translateChatMessage",
+			name = "Chat Message",
+			description = "Translation for chat messages excluding players",
+			section = translationSection,
+			position = 1)
+	default boolean translateChatMessage()
 	{
 		return true;
 	}
 
-	@ConfigItem(keyName = "enableExamine", name = "Examine", description = "Translate any examine", section = translationSection, position = 1)
-	default boolean enableExamine()
+	@ConfigItem(
+			keyName = "translateExamine",
+			name = "Examine",
+			description = "Translation for object examinations",
+			section = translationSection,
+			position = 2)
+	default boolean translateExamine()
 	{
 		return true;
 	}
 
-	@ConfigItem(keyName = "enableOverhead", name = "Overhead Text", description = "Translate overhead text", section = translationSection, position = 2)
-	default boolean enableOverhead()
+	@ConfigItem(
+			keyName = "translateOverheadText",
+			name = "Overhead Text",
+			description = "Translation for overhead text excluding players",
+			section = translationSection,
+			position = 3)
+	default boolean translateOverheadText()
 	{
 		return false;
 	}
 
-	@ConfigItem(keyName = "enableScrolls", name = "Scrolls", description = "Translate various scrolls", section = translationSection, position = 3)
-	default boolean enableScrolls()
+	@ConfigItem(
+			keyName = "translateScroll",
+			name = "Scroll",
+			description = "Translation for scrolls",
+			section = translationSection,
+			position = 4)
+	default boolean translateScroll()
 	{
 		return false;
 	}
 
-	@ConfigItem(keyName = "enableBooks", name = "Books", description = "Translate various books", warning = "It uses a huge amount of resources to translate! Are you sure?", section = translationSection, position = 4)
-	default boolean enableBooks()
+	@ConfigItem(
+			keyName = "translateTreasureClue",
+			name = "Treasure Clues",
+			description = "Translation for treasure clues",
+			section = translationSection,
+			position = 5)
+	default boolean translateTreasureClue()
 	{
 		return false;
 	}
 
-	@ConfigItem(keyName = "enableClues", name = "Treasure Clues", description = "Translate treasure clues", section = translationSection, position = 5)
-	default boolean enableClues()
-	{
-		return false;
-	}
+	@ConfigSection(
+			name = "Visual",
+			description = "Font and visual tweaks",
+			position = 2)
+	String visualSection = "visualSection";
 
-	@ConfigItem(keyName = "enableDiary", name = "Quest Diary", description = "Translate quest diary", warning = "It uses a lot of resources to translate! Are you sure?", section = translationSection, position = 6)
-	default boolean enableDiary()
-	{
-		return false;
-	}
-
-	/*
-		Visual
-	 */
-
-	@ConfigItem(keyName = "fontName", name = "Font Name", description = "Check a fonts viewer", section = visualSection, position = 0)
+	@ConfigItem(
+			keyName = "fontName",
+			name = "Font Name",
+			description = "Choose your favorite font",
+			section = visualSection,
+			position = 0)
 	default String fontName()
 	{
-		return "Consolas";
+		return "CozetteVector";
 	}
 
-	@Range(min = 1, max = 99)
-	@ConfigItem(keyName = "fontSize", name = "Font Size", description = "Why it does matter", section = visualSection, position = 1)
+	@Range(min = 1, max = 99) @ConfigItem(
+			keyName = "fontSize",
+			name = "Font Size",
+			description = "Adjust the font size for more comfort",
+			section = visualSection,
+			position = 1)
 	default int fontSize()
 	{
 		return 12;
 	}
 
-	@ConfigItem(keyName = "textShadow", name = "Text Shadow", description = "Suspicious shadowy text", section = visualSection, position = 2)
+	@ConfigItem(
+			keyName = "textShadow",
+			name = "Text Shadow",
+			description = "Text shadow for better visibility",
+			section = visualSection,
+			position = 2)
 	default boolean textShadow()
 	{
 		return true;
 	}
 
-	@Alpha
-	@ConfigItem(keyName = "overlayColor", name = "Background Color", description = "Any color is acceptable", section = visualSection, position = 3)
-	default Color overlayColor()
+	@Alpha @ConfigItem(
+			keyName = "overlayBackgroundColor",
+			name = "Background Color",
+			description = "Color of translation popups background",
+			section = visualSection,
+			position = 3)
+	default Color overlayBackgroundColor()
 	{
 		return ComponentConstants.STANDARD_BACKGROUND_COLOR;
 	}
 
-	@ConfigItem(keyName = "overlayOutline", name = "Show Outline", description = "Make it.. pretty", section = visualSection, position = 4)
+	@ConfigItem(
+			keyName = "overlayOutline",
+			name = "Show Outline",
+			description = "Outline around translation popups",
+			section = visualSection,
+			position = 4)
 	default boolean overlayOutline()
 	{
 		return true;
 	}
 
-	/*
-		Formatting
-	 */
+	@ConfigSection(
+			name = "Formatting",
+			description = "Text formatting inside of translation popups",
+			closedByDefault = true,
+			position = 3)
+	String formattingSection = "formattingSection";
 
-	@ConfigItem(keyName = "textAlignment", name = "Text Alignment", description = "Move it to the right place", section = formattingSection, position = 0)
+	@ConfigItem(
+			keyName = "textAlignment",
+			name = "Text Alignment",
+			description = "Customize text alignment for unusual positions",
+			section = formattingSection,
+			position = 0)
 	default PolywoofComponent.Behaviour textAlignment()
 	{
 		return PolywoofComponent.Behaviour.DEFAULT;
 	}
 
-	@Range(min = 32, max = 2277)
-	@ConfigItem(keyName = "textWrap", name = "Text Wrap Width", description = "Longest text ever", section = formattingSection, position = 1)
+	@Range(min = 32, max = 2277) @ConfigItem(
+			keyName = "textWrap",
+			name = "Text Wrap Width",
+			description = "Set maximum text length to fit horizontally",
+			section = formattingSection,
+			position = 1)
 	default int textWrap()
 	{
 		return 420;
 	}
 
-	@ConfigItem(keyName = "sourceName", name = "Source Name", description = "Tell me who said that", section = formattingSection, position = 2)
-	default boolean sourceName()
+	@ConfigItem(
+			keyName = "filterChatMessage",
+			name = "Chat Messages Filter",
+			description = "Which chat messages should not be translated",
+			section = formattingSection, position = 2)
+	default String filterChatMessage()
 	{
-		return true;
+		return "^[0-9,]+ x Coins\\.$" +
+				"\n^You gain [0-9,]+ .+ XP\\.$" +
+				"\n^Your .+ lap count is:" +
+				"\n^Your reward is:" +
+				"\n^<col.+?>Well done! You have completed" +
+				"\n^<col.+?>You're assigned to kill" +
+				"\n^<col.+?>You have completed your task!" +
+				"\n^<col.+?>You've completed </col>[0-9,]+ tasks <col.+?>";
 	}
 
-	@ConfigItem(keyName = "numberedOptions", name = "Numbered Options", description = "Let's count up to ten", section = formattingSection, position = 3)
-	default boolean numberedOptions()
+	@ConfigItem(
+			keyName = "filterOverheadText",
+			name = "Overhead Text Filter",
+			description = "Which overhead text should not be translated",
+			section = formattingSection,
+			position = 3)
+	default String filterOverheadText()
 	{
-		return true;
+		return "^[0-9,\\.]+$";
 	}
 
-	/*
-		Ignore
-	*/
+	@ConfigItem(
+			keyName = "filterDialogText",
+			name = "Dialog Text Filter",
+			description = "Which dialog text should not be translated",
+			section = formattingSection,
+			position = 4)
+	default String filterDialogText()
+	{
+		return "^Congratulations, you've just advanced your .+ level\\." +
+				"\n^Exchange '.+': 5 coins" +
+				"\n^Status: [0-9,]+ damage points left\\." +
+				"\n^Your new task is to kill" +
+				"\n^You're currently assigned to kill";
+	}
+
+	enum TranslationBackend
+	{
+		GENERIC,
+		DEEPL
+	}
 }

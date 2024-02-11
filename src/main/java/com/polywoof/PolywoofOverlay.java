@@ -1,5 +1,6 @@
 package com.polywoof;
 
+import com.polywoof.api.API;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -9,32 +10,24 @@ import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.tooltip.Tooltip;
 import net.runelite.client.ui.overlay.tooltip.TooltipManager;
 import net.runelite.client.util.ColorUtil;
-import net.runelite.client.util.ImageUtil;
 
-import javax.annotation.Nullable;
 import javax.annotation.ParametersAreNonnullByDefault;
 import javax.inject.Inject;
 import java.awt.*;
-import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-@Slf4j
-@ParametersAreNonnullByDefault
-public class PolywoofOverlay extends Overlay
+@Slf4j @ParametersAreNonnullByDefault public class PolywoofOverlay extends Overlay
 {
-	private static final BufferedImage buttonImage = ImageUtil.loadImageResource(PolywoofPlugin.class, "/button.png");
-	private static final Tooltip[] tooltips =
-	{
-		new Tooltip("Polywoof is " + ColorUtil.wrapWithColorTag("Off", Color.RED)),
-		new Tooltip("Polywoof is " + ColorUtil.wrapWithColorTag("On", Color.GREEN))
-	};
+	private static final Tooltip[] tooltips = {
+			new Tooltip(String.format("Translation is %s", ColorUtil.wrapWithColorTag("Off", Color.RED))),
+			new Tooltip(String.format("Translation is %s", ColorUtil.wrapWithColorTag("On", Color.GREEN)))};
 
 	private final Rectangle rectangle = new Rectangle(0, 0, 30, 30);
-	private final Map<String, Subtitle> permanent = new HashMap<>(1);
-	private final List<Subtitle> temporary = new ArrayList<>(9);
+	private final Map<String, Subtitle> permanent = new HashMap<>();
+	private final List<Subtitle> temporary = new ArrayList<>();
 	private Font font;
 	private AlphaComposite composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER);
 
@@ -43,13 +36,12 @@ public class PolywoofOverlay extends Overlay
 	@Inject private TooltipManager tooltipManager;
 	@Getter private boolean mouseOver;
 
-	@Override
-	public Dimension render(Graphics2D graphics)
+	@Override public Dimension render(Graphics2D graphics)
 	{
 		if(config.showButton() && !mouseOver)
 		{
 			graphics.setComposite(composite = composite.derive(0.1f));
-			graphics.drawImage(buttonImage, 0, 0, rectangle.width, rectangle.height, null);
+			graphics.drawImage(PolywoofPlugin.resourceIcon, 0, 0, rectangle.width, rectangle.height, null);
 		}
 
 		List<Subtitle> copy = new ArrayList<>(permanent.size() + temporary.size());
@@ -57,7 +49,9 @@ public class PolywoofOverlay extends Overlay
 		copy.addAll(temporary);
 
 		if(!copy.isEmpty())
-			PolywoofComponent.setPosition(getPreferredPosition() == null ? getPosition() : getPreferredPosition());
+		{
+			PolywoofComponent.position = getPreferredPosition() == null ? getPosition() : getPreferredPosition();
+		}
 
 		int offset = 0;
 
@@ -73,10 +67,10 @@ public class PolywoofOverlay extends Overlay
 					continue;
 				}
 
-				subtitle.component.setAlpha(Math.min(1000f, difference) / 1000f);
+				subtitle.component.setOpacity(Math.min(1000f, difference) / 1000f);
 			}
 
-			switch(PolywoofComponent.getAlignment())
+			switch(PolywoofComponent.position)
 			{
 				case TOP_LEFT:
 					subtitle.component.setLocation(rectangle.x, rectangle.y + offset);
@@ -85,12 +79,13 @@ public class PolywoofOverlay extends Overlay
 					subtitle.component.setLocation(rectangle.width / 2, rectangle.y + offset);
 					break;
 				case TOP_RIGHT:
+				case CANVAS_TOP_RIGHT:
 					subtitle.component.setLocation(rectangle.width - rectangle.x, rectangle.y + offset);
 					break;
 				case BOTTOM_LEFT:
 					subtitle.component.setLocation(rectangle.x, rectangle.height - rectangle.y - offset);
 					break;
-				case BOTTOM_CENTER:
+				case ABOVE_CHATBOX_RIGHT:
 					subtitle.component.setLocation(rectangle.width / 2, rectangle.height - rectangle.y - offset);
 					break;
 				case BOTTOM_RIGHT:
@@ -103,109 +98,110 @@ public class PolywoofOverlay extends Overlay
 
 		if(mouseOver)
 		{
+			mouseOver = false;
+
 			if(config.showButton())
 			{
 				graphics.setComposite(composite = composite.derive(1f));
-				graphics.drawImage(buttonImage, 0, 0, rectangle.width, rectangle.height, null);
+				graphics.drawImage(PolywoofPlugin.resourceIcon, 0, 0, rectangle.width, rectangle.height, null);
 
 				if(!client.isMenuOpen())
+				{
 					tooltipManager.add(tooltips[config.toggle() ? 1 : 0]);
+				}
 			}
-
-			mouseOver = false;
 		}
 
 		return rectangle.getSize();
 	}
 
-	@Override
-	public void onMouseOver()
+	@Override public void onMouseOver()
 	{
 		mouseOver = true;
 	}
 
-	@Override
-	public void revalidate()
+	@Override public void revalidate()
 	{
-		font = new Font(config.fontName(), Font.PLAIN, config.fontSize());
+		if(PolywoofPlugin.resourceFont == null || !config.fontName().equals("CozetteVector"))
+		{
+			font = new Font(config.fontName(), Font.PLAIN, config.fontSize());
+		}
+		else
+		{
+			font = PolywoofPlugin.resourceFont.deriveFont(Font.PLAIN, config.fontSize());
+		}
 
-		PolywoofComponent.setTextWrap(config.textWrap());
-		PolywoofComponent.setTextShadow(config.textShadow());
-		PolywoofComponent.setBoxOutline(config.overlayOutline());
-		PolywoofComponent.setBackgroundColor(config.overlayColor());
-		PolywoofComponent.setBehaviour(config.textAlignment());
+		PolywoofComponent.textWrap = config.textWrap();
+		PolywoofComponent.textShadow = config.textShadow();
+		PolywoofComponent.boxOutline = config.overlayOutline();
+		PolywoofComponent.backgroundColor = config.overlayBackgroundColor();
+		PolywoofComponent.behaviour = config.textAlignment();
 
 		for(Subtitle subtitle : permanent.values())
 		{
 			subtitle.component.setFontSize(config.fontSize());
-			subtitle.component.setHeaderSubject(config.sourceName());
-			subtitle.component.setNumberedSubject(config.numberedOptions());
-			subtitle.component.revalidate();
 		}
 
 		for(Subtitle subtitle : temporary)
 		{
 			subtitle.component.setFontSize(config.fontSize());
-			subtitle.component.setHeaderSubject(config.sourceName());
-			subtitle.component.setNumberedSubject(config.numberedOptions());
-			subtitle.component.revalidate();
 		}
 	}
 
-	public void put(@Nullable String header, String string, PolywoofComponent.Subject subject)
+	public void put(List<API.GameText> textList)
 	{
-		if(string.isEmpty())
-			return;
-
 		if(temporary.size() >= 9)
+		{
 			temporary.remove(temporary.size() - 1);
+		}
 
-		temporary.add(0, Subtitle.temporary(new PolywoofComponent(header, string, font, subject), System.currentTimeMillis() + 1500L + (long) (string.length() * 1000f * (1f / config.readingSpeed()))));
+		int length = 0;
+
+		for(API.GameText gameText : textList)
+		{
+			length += gameText.text.length();
+		}
+
+		temporary.add(0, new Subtitle(
+				new PolywoofComponent(textList, font),
+				System.currentTimeMillis() + 1500L + (long)(length * 1000f * (1f / config.readingSpeed()))));
 	}
 
-	public void set(@Nullable String key, @Nullable String header, String string, PolywoofComponent.Subject subject)
+	public void set(String key, List<API.GameText> textList)
 	{
-		if(string.isEmpty())
-			return;
-
 		if(permanent.containsKey(key))
+		{
 			pop(key);
+		}
 
-		permanent.put(key, Subtitle.permanent(new PolywoofComponent(header, string, font, subject)));
+		permanent.put(key, new Subtitle(new PolywoofComponent(textList, font), 0));
 	}
 
-	public void pop(@Nullable String key)
+	public void pop(String key)
 	{
 		if(!permanent.containsKey(key))
+		{
 			return;
+		}
 
 		if(temporary.size() >= 9)
+		{
 			temporary.remove(temporary.size() - 1);
+		}
 
-		temporary.add(0, Subtitle.temporary(permanent.get(key).component, System.currentTimeMillis() + 1500L));
+		temporary.add(0, new Subtitle(permanent.get(key).component, System.currentTimeMillis() + 1500L));
 		permanent.remove(key);
 	}
 
-	public void reset()
+	public void clear()
 	{
 		permanent.clear();
 		temporary.clear();
 	}
 
-	@AllArgsConstructor(access = AccessLevel.PRIVATE)
-	public static class Subtitle
+	@AllArgsConstructor(access = AccessLevel.PRIVATE) private static class Subtitle
 	{
 		public final PolywoofComponent component;
 		public final long timestamp;
-
-		public static Subtitle permanent(PolywoofComponent component)
-		{
-			return new Subtitle(component, 0);
-		}
-
-		public static Subtitle temporary(PolywoofComponent component, long timestamp)
-		{
-			return new Subtitle(component, timestamp);
-		}
 	}
 }
