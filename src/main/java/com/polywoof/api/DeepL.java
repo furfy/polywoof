@@ -3,7 +3,7 @@ package com.polywoof.api;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.polywoof.PolywoofUtils;
+import com.polywoof.Utils;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.client.RuneLite;
 import okhttp3.*;
@@ -12,15 +12,15 @@ import org.apache.commons.text.StringEscapeUtils;
 import javax.annotation.ParametersAreNonnullByDefault;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
-@Slf4j @ParametersAreNonnullByDefault public class DeepL extends API
+@Slf4j @ParametersAreNonnullByDefault public final class DeepL extends API
 {
-	protected static final List<Language> trusted = new ArrayList<>(100);
+	private static final List<Language> trustedLanguageList = new ArrayList<>();
 	private final OkHttpClient client;
-	private String URL;
 	private String key;
+	private String endpoint;
 
 	public DeepL(OkHttpClient client, String key)
 	{
@@ -28,144 +28,135 @@ import java.util.concurrent.atomic.AtomicInteger;
 		update(key);
 	}
 
-	public void fetch(List<GameText> textList, Language language, Submittable submittable)
+	@Override public void fetch(List<GameText> textList, Language language, Translatable translatable)
 	{
-		if(!(language instanceof TrustedLanguage))
+		if(language instanceof TrustedLanguage)
 		{
-			return;
-		}
-
-		synchronized(textList)
-		{
-			FormBody.Builder requestBody = new FormBody.Builder().add("target_lang", language.code)
-					.add("source_lang", "en")
-					.add("preserve_formatting", "1")
-					.add("tag_handling", "html")
-					.add("non_splitting_tags", "br");
-
-			AtomicInteger uncached = new AtomicInteger();
-
-			for(GameText gameText : textList)
+			synchronized(textList)
 			{
-				if(!gameText.cache)
+				FormBody.Builder requestBody = new FormBody.Builder().add("target_lang", language.code)
+						.add("context", "runescape; dungeons and dragons; medieval fantasy;")
+						.add("source_lang", "en")
+						.add("preserve_formatting", "1")
+						.add("formality", "prefer_less")
+						.add("tag_handling", "html")
+						.add("non_splitting_tags", "br");
+
+				List<GameText> bodyText = new ArrayList<>(textList.size());
+
+				for(GameText gameText : textList)
 				{
-					requestBody.add("text", PolywoofUtils.filter(gameText.game));
-					uncached.incrementAndGet();
-				}
-			}
-
-			if(uncached.get() == 0)
-			{
-				submittable.submit();
-				return;
-			}
-
-			fetch("/v2/translate", requestBody.build(), body ->
-			{
-				JsonObject json = parser.parse(body).getAsJsonObject();
-				List<String> translated = new ArrayList<>(50);
-
-				for(JsonElement element : json.getAsJsonArray("translations"))
-				{
-					translated.add(StringEscapeUtils.unescapeHtml4(element.getAsJsonObject().get("text").getAsString()));
-				}
-
-				if(translated.size() == uncached.get())
-				{
-					for(GameText gameText : textList)
+					if(!gameText.cache)
 					{
-						if(!gameText.cache)
-						{
-							gameText.text = translated.remove(0);
-						}
+						requestBody.add("text", Utils.Text.filter(gameText.game));
+						bodyText.add(gameText);
 					}
 				}
 
-				log.debug("DeepL translation is successful");
-				submittable.submit();
-			});
+				if(bodyText.isEmpty())
+				{
+					translatable.translate();
+				}
+				else
+				{
+					fetch("/v2/translate", requestBody.build(), body ->
+					{
+						JsonArray json = parser.parse(body).getAsJsonObject().getAsJsonArray("translations");
+
+						if(bodyText.size() == json.size())
+						{
+							Iterator<JsonElement> iterator = json.iterator();
+
+							for(GameText gameText : textList)
+							{
+								if(!gameText.cache)
+								{
+									gameText.text = StringEscapeUtils.unescapeHtml4(iterator.next().getAsJsonObject().get("text").getAsString());
+								}
+							}
+						}
+
+						translatable.translate();
+					});
+				}
+			}
 		}
 	}
 
-	public void languageList(Supportable supportable)
+	@Override public void languageList(Supportable supportable)
 	{
 		fetch("/v2/languages", new FormBody.Builder().add("type", "target").build(), body ->
 		{
 			JsonArray json = parser.parse(body).getAsJsonArray();
 
-			synchronized(trusted)
+			synchronized(trustedLanguageList)
 			{
-				trusted.clear();
+				trustedLanguageList.clear();
 
 				for(JsonElement element : json)
 				{
-					trusted.add(new TrustedLanguage(element.getAsJsonObject()));
+					trustedLanguageList.add(new TrustedLanguage(element.getAsJsonObject()));
 				}
 
-				supportable.list(trusted);
+				supportable.list(trustedLanguageList);
 			}
 		});
 	}
 
-	public Language languageFind(String language)
+	@Override public Language languageFind(String language)
 	{
-		return languageFinder(language, trusted, languages);
-	}
-
-	public void update(String key)
-	{
-		URL = key.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
-		this.key = key;
+		synchronized(trustedLanguageList)
+		{
+			return languageFinder(language, trustedLanguageList, resourceLanguageList);
+		}
 	}
 
 	private void fetch(String path, RequestBody requestBody, Receivable receivable)
 	{
-		if(key.isEmpty())
+		if(!key.isBlank())
 		{
-			return;
-		}
-
-		try
-		{
-			Request request = new Request.Builder().addHeader("User-Agent", RuneLite.USER_AGENT + " (polywoof)")
-					.addHeader("Authorization", "DeepL-Auth-Key " + key)
-					.addHeader("Accept", "application/json")
-					.addHeader("Content-Type", "application/x-www-form-urlencoded")
-					.addHeader("Content-Length", String.valueOf(requestBody.contentLength()))
-					.url(URL + path)
-					.post(requestBody)
-					.build();
-
-			client.newCall(request).enqueue(new Callback()
+			try
 			{
-				@Override public void onFailure(Call call, IOException error)
-				{
-					log.error("Failed to receive the API response", error);
-				}
+				log.debug("Trying to create the {} request", path);
+				Request request = new Request.Builder().addHeader("User-Agent", RuneLite.USER_AGENT + " (polywoof)")
+						.addHeader("Authorization", "DeepL-Auth-Key " + key)
+						.addHeader("Accept", "application/json")
+						.addHeader("Content-Type", "application/x-www-form-urlencoded")
+						.addHeader("Content-Length", String.valueOf(requestBody.contentLength()))
+						.url(endpoint + path)
+						.post(requestBody)
+						.build();
 
-				@Override public void onResponse(Call call, Response response)
+				client.newCall(request).enqueue(new Callback()
 				{
-					try(ResponseBody responseBody = response.body())
+					@Override public void onFailure(Call call, IOException error)
 					{
-						handleCode(response.code());
+						log.error("Failed to receive the API response", error);
+					}
 
-						if(responseBody == null)
+					@Override public void onResponse(Call call, Response response)
+					{
+						try(ResponseBody responseBody = response.body())
 						{
-							return;
-						}
+							handleCode(response.code());
+							lastError = null;
 
-						receivable.receive(responseBody.string());
+							if(responseBody != null)
+							{
+								receivable.receive(responseBody.string());
+							}
+						}
+						catch(Exception error)
+						{
+							lastError = error;
+						}
 					}
-					catch(Exception error)
-					{
-						log.error("Failed to proceed the API response", error);
-					}
-				}
-			});
-		}
-		catch(IOException error)
-		{
-			log.error("Failed to create the API request", error);
+				});
+			}
+			catch(Exception error)
+			{
+				log.error("Failed to create the API request", error);
+			}
 		}
 	}
 
@@ -176,6 +167,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 			JsonObject json = parser.parse(body).getAsJsonObject();
 			usable.usage(json.get("character_count").getAsLong(), json.get("character_limit").getAsLong());
 		});
+	}
+
+	public void update(String key)
+	{
+		this.key = key;
+		endpoint = key.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
+
+		languageList(languageList -> languageList.forEach(language -> log.debug("{} - {}", language.code, language.name)));
 	}
 
 	private static void handleCode(int code) throws Exception
@@ -205,9 +204,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 		}
 	}
 
-	public static class TrustedLanguage extends Language
+	public static final class TrustedLanguage extends Language
 	{
-		protected TrustedLanguage(JsonObject object)
+		private TrustedLanguage(JsonObject object)
 		{
 			super(object.get("language").getAsString(), object.get("name").getAsString());
 		}

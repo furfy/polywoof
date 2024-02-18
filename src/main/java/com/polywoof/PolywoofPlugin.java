@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.*;
 import net.runelite.api.widgets.*;
+import net.runelite.client.callback.ClientThread;
 import net.runelite.client.chat.ChatColorType;
 import net.runelite.client.chat.ChatMessageBuilder;
 import net.runelite.client.chat.ChatMessageManager;
@@ -15,27 +16,27 @@ import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
+import net.runelite.client.input.MouseListener;
+import net.runelite.client.input.MouseManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.ClientUI;
 import net.runelite.client.ui.JagexColors;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.util.ColorUtil;
+import net.runelite.client.util.Text;
 import okhttp3.OkHttpClient;
 
 import javax.annotation.ParametersAreNonnullByDefault;
-import javax.imageio.ImageIO;
 import javax.inject.Inject;
 import java.awt.*;
-import java.awt.image.BufferedImage;
-import java.io.InputStream;
+import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 
 @Slf4j @ParametersAreNonnullByDefault @PluginDescriptor(
 		name = "Polywoof",
@@ -44,27 +45,26 @@ import java.util.concurrent.Executors;
 				"helper",
 				"language",
 				"translation"})
-public class PolywoofPlugin extends Plugin
+public class PolywoofPlugin extends Plugin implements MouseListener
 {
-	public static Font resourceFont;
-	public static BufferedImage resourceIcon;
-	public static final Executor executor = Executors.newSingleThreadExecutor();
-
-	private PolywoofStorage storage;
-	private API backend;
-	private PolywoofUtils.TextVerifier verifierChatMessage;
-	private PolywoofUtils.TextVerifier verifierOverheadText;
-	private PolywoofUtils.TextVerifier verifierDialogText;
-	private boolean selectWidget = false;
 	private final List<API.GameText> previousList = new ArrayList<>(50);
 	private final List<String> examineList = new ArrayList<>();
+	private API backend;
+	private Dictionary dictionary;
+	private Utils.TextVerifier verifierChatMessage;
+	private Utils.TextVerifier verifierOverheadText;
+	private Utils.TextVerifier verifierDialogText;
+	private boolean getWidgetData;
 
+	@Inject private ChatMessageManager chatMessageManager;
 	@Inject private Client client;
+	@Inject private ClientThread clientThread;
+	@Inject private ClientUI clientUI;
+	@Inject private MouseManager mouseManager;
+	@Inject private OkHttpClient okHttpClient;
+	@Inject private OverlayManager overlayManager;
 	@Inject private PolywoofConfig config;
 	@Inject private PolywoofOverlay overlay;
-	@Inject private OverlayManager overlayManager;
-	@Inject private ChatMessageManager chatMessageManager;
-	@Inject private OkHttpClient okHttpClient;
 
 	@Provides PolywoofConfig provideConfig(ConfigManager configManager)
 	{
@@ -73,267 +73,446 @@ public class PolywoofPlugin extends Plugin
 
 	@Override protected void startUp()
 	{
-		try(InputStream stream = PolywoofPlugin.class.getResourceAsStream("/font.ttf"))
-		{
-			if(stream == null)
-			{
-				throw new IllegalArgumentException();
-			}
-
-			resourceFont = Font.createFont(Font.TRUETYPE_FONT, stream);
-		}
-		catch(Exception error)
-		{
-			log.error("Failed to load the default font", error);
-		}
-
-		try(InputStream stream = PolywoofPlugin.class.getResourceAsStream("/icon.png"))
-		{
-			if(stream == null)
-			{
-				throw new IllegalArgumentException();
-			}
-
-			resourceIcon = ImageIO.read(stream);
-		}
-		catch(Exception error)
-		{
-			log.error("Failed to load the button icon", error);
-		}
-
-		overlay.setPosition(OverlayPosition.ABOVE_CHATBOX_RIGHT);
+		mouseManager.registerMouseListener(this);
+		overlay.setPosition(OverlayPosition.BOTTOM_LEFT);
 		overlay.setPriority(Overlay.PRIORITY_LOW);
 		overlay.setLayer(OverlayLayer.ABOVE_WIDGETS);
 		overlay.revalidate();
 		overlayManager.add(overlay);
+		dictionary = new Dictionary("polywoof");
+		verifierChatMessage = new Utils.TextVerifier(config.filterChatMessage());
+		verifierOverheadText = new Utils.TextVerifier(config.filterOverheadText());
+		verifierDialogText = new Utils.TextVerifier(config.filterDialogText());
+		getWidgetData = false;
 
-		storage = new PolywoofStorage("polywoof");
-		verifierChatMessage = new PolywoofUtils.TextVerifier(config.filterChatMessage());
-		verifierOverheadText = new PolywoofUtils.TextVerifier(config.filterOverheadText());
-		verifierDialogText = new PolywoofUtils.TextVerifier(config.filterDialogText());
+		changeBackend(config.backend());
 
-		setBackend(config.backend());
-
-		if(config.key().isBlank() && !(backend instanceof Generic))
+		if(backend instanceof Generic)
 		{
-			String message = new ChatMessageBuilder().append(ChatColorType.NORMAL)
-					.append("Polywoof is not ready, the ")
-					.append(ChatColorType.HIGHLIGHT)
-					.append("API Key")
+			ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.HIGHLIGHT)
+					.append("Generic")
 					.append(ChatColorType.NORMAL)
-					.append(" is missing.")
-					.build();
+					.append(" backend is set, intended for testing.");
 
 			chatMessageManager.queue(QueuedMessage.builder()
 					.type(ChatMessageType.CONSOLE)
-					.runeLiteFormattedMessage(message)
+					.runeLiteFormattedMessage(builder.build())
 					.build());
 		}
 
 		if(config.showUsage())
 		{
-			getUsage();
+			verifyUsage();
 		}
 	}
 
 	@Override protected void shutDown()
 	{
-		storage.close();
+		clientUI.setCursor(clientUI.getDefaultCursor());
+		mouseManager.unregisterMouseListener(this);
 		overlay.clear();
 		overlayManager.remove(overlay);
+		dictionary.close();
+		previousList.clear();
+		examineList.clear();
+	}
+
+	@Override public MouseEvent mouseClicked(MouseEvent mouseEvent)
+	{
+		return mouseEvent;
+	}
+
+	@Override public MouseEvent mousePressed(MouseEvent mouseEvent)
+	{
+		if(getWidgetData)
+		{
+			getWidgetData = false;
+			clientThread.invoke(() ->
+			{
+				Utils.Interface.WidgetData widgetData = Utils.Interface.getWidgetData(
+						client.getMouseCanvasPosition(),
+						client.getWidgetRoots(),
+						Utils.Interface.Type.ROOT);
+
+				if(widgetData != null)
+				{
+					int group = WidgetUtil.componentToInterface(widgetData.widget.getId());
+					int id = WidgetUtil.componentToId(widgetData.widget.getId());
+
+					if(backend instanceof Generic)
+					{
+						ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.HIGHLIGHT)
+								.append(String.format("[%s %d.%d]", Text.titleCase(widgetData.type), group, id))
+								.append(ChatColorType.NORMAL);
+
+						if(!widgetData.widget.getText().isBlank())
+						{
+							builder.append(String.format(" «%s»", widgetData.widget.getText()));
+						}
+
+						chatMessageManager.queue(QueuedMessage.builder()
+								.type(ChatMessageType.CONSOLE)
+								.runeLiteFormattedMessage(builder.build())
+								.build());
+					}
+					else if(!widgetData.widget.getText().isBlank())
+					{
+						API.GameText gameText;
+
+						if(!widgetData.widget.hasListener() && widgetData.type != Utils.Interface.Type.DYNAMIC)
+						{
+							StringBuilder builder = new StringBuilder(API.GameText.Type.SCROLL.size);
+
+							for(int i = 1;; i++)
+							{
+								Widget widget = client.getWidget(group, id - i);
+
+								if(widget == null || widget.hasListener() || widget.getType() != WidgetType.TEXT || widget.getText().isBlank())
+								{
+									break;
+								}
+
+								builder.insert(0, ' ').insert(0, widget.getText());
+							}
+
+							builder.append(widgetData.widget.getText());
+
+							for(int i = 1;; i++)
+							{
+								Widget widget = client.getWidget(group, id + i);
+
+								if(widget == null || widget.hasListener() || widget.getType() != WidgetType.TEXT || widget.getText().isBlank())
+								{
+									break;
+								}
+
+								builder.append(' ').append(widget.getText());
+							}
+
+							gameText = new API.GameText(builder.toString(), API.GameText.Type.SCROLL);
+						}
+						else
+						{
+							gameText = new API.GameText(widgetData.widget.getText(), API.GameText.Type.DIALOG);
+						}
+
+						backend.buffered(List.of(gameText), backend.languageFind(config.language()), () -> overlay.put(List.of(gameText)));
+					}
+				}
+			});
+
+			clientUI.setCursor(clientUI.getDefaultCursor());
+			mouseEvent.consume();
+		}
+
+		return mouseEvent;
+	}
+
+	@Override public MouseEvent mouseReleased(MouseEvent mouseEvent)
+	{
+		if(getWidgetData)
+		{
+			clientUI.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+			mouseEvent.consume();
+		}
+
+		return mouseEvent;
+	}
+
+	@Override public MouseEvent mouseEntered(MouseEvent mouseEvent)
+	{
+		return mouseEvent;
+	}
+
+	@Override public MouseEvent mouseExited(MouseEvent mouseEvent)
+	{
+		return mouseEvent;
+	}
+
+	@Override public MouseEvent mouseDragged(MouseEvent mouseEvent)
+	{
+		return mouseEvent;
+	}
+
+	@Override public MouseEvent mouseMoved(MouseEvent mouseEvent)
+	{
+		return mouseEvent;
 	}
 
 	@Subscribe public void onConfigChanged(ConfigChanged configChanged)
 	{
-		if(!configChanged.getGroup().equals("polywoof"))
+		if(configChanged.getGroup().equals("polywoof"))
 		{
-			return;
-		}
-
-		switch(configChanged.getKey())
-		{
-			case "toggle":
-				examineList.clear();
-				break;
-			case "backend":
-				setBackend(config.backend());
-			case "language":
-				if(backend.languageFind(config.language()) instanceof API.UnknownLanguage)
-				{
-					String language = config.language().trim().replaceAll("\n", " ");
-
-					if(language.length() > 10)
+			log.debug("Trying to change {} in the config", configChanged.getKey());
+			switch(configChanged.getKey())
+			{
+				case "backend":
+					changeBackend(config.backend());
+					break;
+				case "key":
+					if(config.key().equals("pesik"))
 					{
-						language = String.format("%s...", language.substring(0, 10));
+						API.GameText title = new API.GameText("Секретка..", true);
+						API.GameText message = new API.GameText("Ну тяф и что? Да-да, я пёсик!", API.GameText.Type.OVERHEAD);
+						message.text = message.game;
+						message.cache = true;
+
+						overlay.put(List.of(title, message));
 					}
 
-					String message = new ChatMessageBuilder().append(ChatColorType.NORMAL)
-							.append("Your chosen language «")
-							.append(ChatColorType.HIGHLIGHT)
-							.append(language)
-							.append(ChatColorType.NORMAL)
-							.append("» is not found!")
-							.build();
-
-					chatMessageManager.queue(QueuedMessage.builder()
-							.type(ChatMessageType.CONSOLE)
-							.runeLiteFormattedMessage(message)
-							.build());
-				}
-				break;
-			case "key":
-				if(backend instanceof DeepL)
-				{
-					((DeepL)backend).update(config.key());
-					backend.languageList(languages -> log.info("{} languages loaded!", languages.size()));
-				}
-				break;
-			case "showButton":
-				config.toggle(true);
-				break;
-			case "fontName":
-			case "fontSize":
-			case "textShadow":
-			case "overlayBackgroundColor":
-			case "overlayOutline":
-			case "textAlignment":
-			case "textWrap":
-				overlay.revalidate();
-				break;
-			case "filterChatMessage":
-				verifierChatMessage.update(config.filterDialogText());
-				break;
-			case "filterOverheadText":
-				verifierOverheadText.update(config.filterDialogText());
-				break;
-			case "filterDialogText":
-				verifierDialogText.update(config.filterDialogText());
-				break;
-		}
-	}
-
-	@Subscribe public void onMenuOpened(MenuOpened menuOpened)
-	{
-		if(!config.showButton() || !overlay.isMouseOver())
-		{
-			return;
-		}
-
-		client.createMenuEntry(1)
-				.setOption("Show")
-				.setTarget(ColorUtil.wrapWithColorTag("Usage", JagexColors.MENU_TARGET))
-				.setType(MenuAction.RUNELITE)
-				.onClick(menuEntry -> getUsage());
-
-		client.createMenuEntry(2)
-				.setOption(config.toggle() ? "Disable" : "Enable")
-				.setTarget(ColorUtil.wrapWithColorTag("Translation", JagexColors.MENU_TARGET))
-				.setType(MenuAction.RUNELITE)
-				.onClick(menuEntry -> config.toggle(!config.toggle()));
-
-		if(backend instanceof Generic)
-		{
-			client.createMenuEntry(3)
-					.setOption("Select")
-					.setTarget(ColorUtil.wrapWithColorTag("Widget", JagexColors.MENU_TARGET))
-					.setType(MenuAction.RUNELITE)
-					.onClick(menuEntry -> selectWidget = true);
-		}
-	}
-
-	@Subscribe public void onMenuOptionClicked(MenuOptionClicked menuOptionClicked)
-	{
-		if(selectWidget)
-		{
-			selectWidget = false;
-			getWidget();
-		}
-
-		if(!config.toggle())
-		{
-			return;
-		}
-
-		switch(menuOptionClicked.getMenuAction())
-		{
-			case EXAMINE_ITEM_GROUND:
-			case EXAMINE_NPC:
-			case EXAMINE_OBJECT:
-			case CC_OP_LOW_PRIORITY:
-				if(config.showTitle() && config.translateExamine())
-				{
-					if(menuOptionClicked.getMenuEntry().getNpc() == null)
+					if(backend instanceof DeepL)
 					{
-						examineList.add(menuOptionClicked.getMenuTarget());
+						((DeepL)backend).update(config.key());
 					}
-					else
-					{
-						examineList.add(menuOptionClicked.getMenuEntry().getNpc().getName());
-					}
-				}
-				break;
+					break;
+				case "showButton":
+					config.toggle(true);
+					break;
+				case "fontName":
+				case "fontSize":
+				case "textShadow":
+				case "overlayBackgroundColor":
+				case "overlayOutline":
+				case "textAlignment":
+				case "textWrap":
+					overlay.revalidate();
+					break;
+				case "filterChatMessage":
+					verifierChatMessage.update(config.filterChatMessage());
+					break;
+				case "filterOverheadText":
+					verifierOverheadText.update(config.filterOverheadText());
+					break;
+				case "filterDialogText":
+					verifierDialogText.update(config.filterDialogText());
+					break;
+			}
 		}
 	}
 
 	@Subscribe public void onChatMessage(ChatMessage chatMessage)
 	{
-		if(!config.toggle())
+		if(config.toggle())
 		{
-			return;
-		}
+			List<API.GameText> textList = new ArrayList<>(50);
 
-		List<API.GameText> textList = new ArrayList<>(50);
+			switch(chatMessage.getType())
+			{
+				case GAMEMESSAGE:
+					if(config.translateChatMessage())
+					{
+						if(config.showTitle() && !chatMessage.getName().isBlank())
+						{
+							textList.add(new API.GameText(chatMessage.getName(), config.keepTitle()));
+						}
 
-		switch(chatMessage.getType())
-		{
-			case GAMEMESSAGE:
-				if(!config.translateChatMessage())
-				{
+						textList.add(new API.GameText(chatMessage.getMessage(), API.GameText.Type.MESSAGE));
+					}
+					break;
+				case ITEM_EXAMINE:
+				case NPC_EXAMINE:
+				case OBJECT_EXAMINE:
+					if(config.translateExamine())
+					{
+						if(config.showTitle() && !examineList.isEmpty())
+						{
+							textList.add(new API.GameText(examineList.remove(0), config.keepTitle()));
+						}
+
+						textList.add(new API.GameText(chatMessage.getMessage(), API.GameText.Type.EXAMINE));
+					}
+					break;
+				default:
 					return;
-				}
+			}
 
-				if(config.showTitle() && !chatMessage.getName().isBlank())
-				{
-					textList.add(new API.GameText(chatMessage.getName(), config.keepTitle()));
-				}
-
-				textList.add(new API.GameText(chatMessage.getMessage(), API.GameText.Type.MESSAGE));
-				break;
-			case ITEM_EXAMINE:
-			case NPC_EXAMINE:
-			case OBJECT_EXAMINE:
-				if(!config.translateExamine())
-				{
-					return;
-				}
-
-				if(config.showTitle() && !examineList.isEmpty())
-				{
-					textList.add(new API.GameText(examineList.remove(0), config.keepTitle()));
-				}
-
-				textList.add(new API.GameText(chatMessage.getMessage(), API.GameText.Type.EXAMINE));
-				break;
-			default:
-				return;
+			if(verifierChatMessage.verify(textList))
+			{
+				backend.stored(textList, backend.languageFind(config.language()), dictionary, () -> overlay.put(textList));
+			}
 		}
+	}
 
-		verifierChatMessage.verify(textList);
-
-		if(!textList.isEmpty())
+	@Subscribe public void onGameTick(GameTick gameTick)
+	{
+		if(config.toggle())
 		{
-			backend.submit(textList, backend.languageFind(config.language()), storage, () -> overlay.put(textList));
+			List<API.GameText> textList = new ArrayList<>(50);
+			Widget dialogPlayerName = client.getWidget(InterfaceID.DIALOG_PLAYER, 4);
+			Widget dialogPlayerText = client.getWidget(ComponentID.DIALOG_PLAYER_TEXT);
+			Widget dialogNpcName = client.getWidget(ComponentID.DIALOG_NPC_NAME);
+			Widget dialogNpcText = client.getWidget(ComponentID.DIALOG_NPC_TEXT);
+			Widget dialogSpriteText = client.getWidget(ComponentID.DIALOG_SPRITE_TEXT);
+			Widget dialogDoubleSprite = client.getWidget(ComponentID.DIALOG_DOUBLE_SPRITE_TEXT);
+			Widget dialogUnknown229 = client.getWidget(229, 1);
+			Widget dialogOptionOptions = client.getWidget(ComponentID.DIALOG_OPTION_OPTIONS);
+			Widget genericScrollText = client.getWidget(ComponentID.GENERIC_SCROLL_TEXT);
+			Widget clueScrollText = client.getWidget(ComponentID.CLUESCROLL_TEXT);
+
+			if(dialogPlayerName != null && dialogPlayerText != null)
+			{
+				if(config.showTitle())
+				{
+					textList.add(new API.GameText(dialogPlayerName.getText(), config.keepTitle()));
+				}
+
+				textList.add(new API.GameText(dialogPlayerText.getText(), API.GameText.Type.DIALOG));
+			}
+
+			if(dialogNpcName != null && dialogNpcText != null)
+			{
+				if(config.showTitle())
+				{
+					textList.add(new API.GameText(dialogNpcName.getText(), config.keepTitle()));
+				}
+
+				textList.add(new API.GameText(dialogNpcText.getText(), API.GameText.Type.DIALOG));
+			}
+
+			if(dialogSpriteText != null)
+			{
+				textList.add(new API.GameText(dialogSpriteText.getText(), API.GameText.Type.DIALOG));
+			}
+
+			if(dialogDoubleSprite != null)
+			{
+				textList.add(new API.GameText(dialogDoubleSprite.getText(), API.GameText.Type.DIALOG));
+			}
+
+			if(dialogUnknown229 != null)
+			{
+				textList.add(new API.GameText(dialogUnknown229.getText(), API.GameText.Type.DIALOG));
+			}
+
+			if(dialogOptionOptions != null)
+			{
+				for(Widget widget : dialogOptionOptions.getDynamicChildren())
+				{
+					if(widget.getType() == WidgetType.TEXT)
+					{
+						if(widget.hasListener())
+						{
+							textList.add(new API.GameText(widget.getText(), API.GameText.Type.OPTION));
+						}
+						else if(config.showTitle())
+						{
+							textList.add(new API.GameText(widget.getText(), config.keepTitle()));
+						}
+					}
+				}
+			}
+
+			if(config.translateScroll() && genericScrollText != null)
+			{
+				StringBuilder builder = new StringBuilder(API.GameText.Type.SCROLL.size);
+
+				for(Widget widget : genericScrollText.getNestedChildren())
+				{
+					if(widget.getType() == WidgetType.TEXT)
+					{
+						if(widget.getText().isBlank() && builder.length() > 0)
+						{
+							textList.add(new API.GameText(builder.toString(), API.GameText.Type.SCROLL));
+							builder = new StringBuilder(API.GameText.Type.SCROLL.size);
+						}
+						else
+						{
+							if(builder.length() > 0)
+							{
+								builder.append(' ');
+							}
+
+							builder.append(widget.getText());
+						}
+					}
+				}
+			}
+
+			if(config.translateTreasureClue() && clueScrollText != null)
+			{
+				textList.add(new API.GameText(clueScrollText.getText(), API.GameText.Type.SCROLL));
+			}
+
+			if(verifierDialogText.verify(textList))
+			{
+				if(textList.size() == previousList.size())
+				{
+					Iterator<API.GameText> iterator = previousList.iterator();
+
+					for(API.GameText gameText : textList)
+					{
+						if(!gameText.game.equals(iterator.next().game))
+						{
+							break;
+						}
+
+						if(!iterator.hasNext())
+						{
+							return;
+						}
+					}
+				}
+
+				previousList.clear();
+				previousList.addAll(textList);
+				overlay.pop("default");
+				backend.stored(textList, backend.languageFind(config.language()), dictionary, () -> overlay.set("default", textList));
+			}
+			else if(!previousList.isEmpty())
+			{
+				previousList.clear();
+				overlay.pop("default");
+			}
+		}
+		else
+		{
+			previousList.clear();
+			overlay.pop("default");
+		}
+	}
+
+	@Subscribe public void onMenuOpened(MenuOpened menuOpened)
+	{
+		if(config.showButton() && overlay.isMouseOver())
+		{
+			client.createMenuEntry(1)
+					.setOption(backend instanceof Generic ? "Get" : "Select")
+					.setTarget(ColorUtil.wrapWithColorTag(backend instanceof Generic ? "Widget ID" : "Text", JagexColors.MENU_TARGET))
+					.setType(MenuAction.RUNELITE)
+					.onClick(menuEntry -> getWidgetData = true);
+
+			client.createMenuEntry(2)
+					.setOption("Get")
+					.setTarget(ColorUtil.wrapWithColorTag("API Usage", JagexColors.MENU_TARGET))
+					.setType(MenuAction.RUNELITE)
+					.onClick(menuEntry -> verifyUsage());
+
+			client.createMenuEntry(3)
+					.setOption(config.toggle() ? "Suspend" : "Resume")
+					.setTarget(ColorUtil.wrapWithColorTag("Translation", JagexColors.MENU_TARGET))
+					.setType(MenuAction.RUNELITE)
+					.onClick(menuEntry -> config.toggle(!config.toggle()));
+		}
+	}
+
+	@Subscribe public void onMenuOptionClicked(MenuOptionClicked menuOptionClicked)
+	{
+		if(config.toggle() && config.translateExamine() && config.showTitle() && menuOptionClicked.getMenuOption().equals("Examine"))
+		{
+			if(menuOptionClicked.getMenuEntry().getNpc() == null)
+			{
+				examineList.add(menuOptionClicked.getMenuTarget());
+			}
+			else
+			{
+				examineList.add(menuOptionClicked.getMenuEntry().getNpc().getName());
+			}
 		}
 	}
 
 	@Subscribe public void onOverheadTextChanged(OverheadTextChanged overheadTextChanged)
 	{
-		if(!config.toggle())
-		{
-			return;
-		}
-
-		if(config.translateOverheadText() && overheadTextChanged.getActor() instanceof NPC)
+		if(config.toggle() && config.translateOverheadText() && overheadTextChanged.getActor() instanceof NPC)
 		{
 			List<API.GameText> textList = new ArrayList<>(50);
 			NPC npc = (NPC)overheadTextChanged.getActor();
@@ -348,181 +527,70 @@ public class PolywoofPlugin extends Plugin
 
 					textList.add(new API.GameText(overheadTextChanged.getOverheadText(), API.GameText.Type.OVERHEAD));
 					break;
+				case NpcID.BEE_KEEPER:
+				case NpcID.CAPT_ARNAV:
+				case NpcID.NILES:
+				case NpcID.MILES:
+				case NpcID.GILES:
+				case NpcID.COUNT_CHECK:
+				case NpcID.SERGEANT_DAMIEN:
+				case NpcID.DRUNKEN_DWARF:
+				case NpcID.EVIL_BOB:
+				case NpcID.POSTIE_PETE:
+				case NpcID.FREAKY_FORESTER:
+				case NpcID.GENIE:
+				case NpcID.LEO:
+				case NpcID.DR_JEKYLL:
+				case NpcID.FROG_PRINCE:
+				case NpcID.FROG_PRINCESS:
+				case NpcID.MYSTERIOUS_OLD_MAN:
+				case NpcID.PILLORY_GUARD:
+				case NpcID.FLIPPA:
+				case NpcID.TILT:
+				case NpcID.QUIZ_MASTER:
+				case NpcID.RICK_TURPENTINE:
+				case NpcID.SANDWICH_LADY:
+				case NpcID.DUNCE:
 				case NpcID.TOWN_CRIER:
 				case NpcID.ELITE_VOID_KNIGHT:
 					return;
 			}
 
-			verifierOverheadText.verify(textList);
-
-			if(!textList.isEmpty())
+			if(verifierOverheadText.verify(textList))
 			{
-				backend.submit(textList, backend.languageFind(config.language()), storage, () -> overlay.put(textList));
-
+				backend.stored(textList, backend.languageFind(config.language()), dictionary, () -> overlay.put(textList));
 			}
 		}
 	}
 
-	@Subscribe public void onGameTick(GameTick gameTick)
+	private void changeBackend(TranslationBackend backend)
 	{
-		if(!config.toggle())
-		{
-			previousList.clear();
-			overlay.pop("default");
-			return;
-		}
-
-		List<API.GameText> textList = new ArrayList<>(50);
-		Widget dialogPlayerName = client.getWidget(InterfaceID.DIALOG_PLAYER, 4);
-		Widget dialogPlayerText = client.getWidget(ComponentID.DIALOG_PLAYER_TEXT);
-		Widget dialogNpcName = client.getWidget(ComponentID.DIALOG_NPC_NAME);
-		Widget dialogNpcText = client.getWidget(ComponentID.DIALOG_NPC_TEXT);
-		Widget dialogSpriteText = client.getWidget(ComponentID.DIALOG_SPRITE_TEXT);
-		Widget dialogDoubleSprite = client.getWidget(ComponentID.DIALOG_DOUBLE_SPRITE_TEXT);
-		Widget dialogOptionOptions = client.getWidget(ComponentID.DIALOG_OPTION_OPTIONS);
-		Widget genericScrollText = client.getWidget(ComponentID.GENERIC_SCROLL_TEXT);
-		Widget clueScrollText = client.getWidget(ComponentID.CLUESCROLL_TEXT);
-
-		if(dialogPlayerName != null && dialogPlayerText != null)
-		{
-			if(config.showTitle())
-			{
-				textList.add(new API.GameText(dialogPlayerName.getText(), config.keepTitle()));
-			}
-
-			textList.add(new API.GameText(dialogPlayerText.getText(), API.GameText.Type.DIALOG));
-		}
-
-		if(dialogNpcName != null && dialogNpcText != null)
-		{
-			if(config.showTitle())
-			{
-				textList.add(new API.GameText(dialogNpcName.getText(), config.keepTitle()));
-			}
-
-			textList.add(new API.GameText(dialogNpcText.getText(), API.GameText.Type.DIALOG));
-		}
-
-		if(dialogSpriteText != null)
-		{
-			textList.add(new API.GameText(dialogSpriteText.getText(), API.GameText.Type.DIALOG));
-		}
-
-		if(dialogDoubleSprite != null)
-		{
-			textList.add(new API.GameText(dialogDoubleSprite.getText(), API.GameText.Type.DIALOG));
-		}
-
-		if(dialogOptionOptions != null)
-		{
-			for(Widget widget : dialogOptionOptions.getDynamicChildren())
-			{
-				if(widget.getType() == WidgetType.TEXT)
-				{
-					if(widget.hasListener())
-					{
-						textList.add(new API.GameText(widget.getText(), API.GameText.Type.OPTION));
-					}
-					else if(config.showTitle())
-					{
-						textList.add(new API.GameText(widget.getText(), config.keepTitle()));
-					}
-				}
-			}
-		}
-
-		if(config.translateScroll() && genericScrollText != null)
-		{
-			StringBuilder builder = new StringBuilder(API.GameText.Type.SCROLL.size);
-
-			for(Widget widget : genericScrollText.getNestedChildren())
-			{
-				if(widget.getType() == WidgetType.TEXT)
-				{
-					if(widget.getText().isEmpty() && builder.length() > 0)
-					{
-						textList.add(new API.GameText(builder.toString(), API.GameText.Type.SCROLL));
-						builder = new StringBuilder(API.GameText.Type.SCROLL.size);
-					}
-					else
-					{
-						builder.append(widget.getText());
-					}
-				}
-			}
-		}
-
-		if(config.translateTreasureClue() && clueScrollText != null)
-		{
-			textList.add(new API.GameText(clueScrollText.getText(), API.GameText.Type.SCROLL));
-		}
-
-		verifierDialogText.verify(textList);
-
-		if(textList.isEmpty())
-		{
-			if(!previousList.isEmpty())
-			{
-				previousList.clear();
-				overlay.pop("default");
-			}
-
-			return;
-		}
-
-		if(!previousList.isEmpty() && textList.size() == previousList.size())
-		{
-			Iterator<API.GameText> iterator = previousList.iterator();
-
-			for(API.GameText gameText : textList)
-			{
-				if(!gameText.game.equals(iterator.next().game))
-				{
-					break;
-				}
-
-				if(!iterator.hasNext())
-				{
-					return;
-				}
-			}
-		}
-
-		previousList.clear();
-		previousList.addAll(textList);
-		overlay.pop("default");
-		backend.submit(textList, backend.languageFind(config.language()), storage, () -> overlay.set("default", textList));
-	}
-
-	private void setBackend(PolywoofConfig.TranslationBackend backend)
-	{
+		log.info("Trying to set the {} backend", backend);
 		switch(backend)
 		{
 			case GENERIC:
 				this.backend = new Generic();
-				storage.close();
+				dictionary.close();
 				break;
 			case DEEPL:
 				this.backend = new DeepL(okHttpClient, config.key());
-				this.backend.languageList(languages -> log.info("{} languages loaded!", languages.size()));
-				storage.open();
+				dictionary.open();
 				break;
 		}
 	}
 
-	private void getUsage()
+	private void verifyUsage()
 	{
 		if(backend instanceof Generic)
 		{
-			String message = new ChatMessageBuilder().append(ChatColorType.HIGHLIGHT)
+			ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.HIGHLIGHT)
 					.append("Generic")
 					.append(ChatColorType.NORMAL)
-					.append(" backend does not have any quota.")
-					.build();
+					.append(" backend doesn't have any quota.");
 
 			chatMessageManager.queue(QueuedMessage.builder()
 					.type(ChatMessageType.CONSOLE)
-					.runeLiteFormattedMessage(message)
+					.runeLiteFormattedMessage(builder.build())
 					.build());
 		}
 
@@ -530,47 +598,24 @@ public class PolywoofPlugin extends Plugin
 		{
 			((DeepL)backend).usage((characterCount, characterLimit) ->
 			{
-				String message = new ChatMessageBuilder().append(ChatColorType.NORMAL)
+				ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.NORMAL)
 						.append("Your current API usage is ")
 						.append(ChatColorType.HIGHLIGHT)
 						.append(Math.round(100f * ((float)characterCount / characterLimit)) + "%")
 						.append(ChatColorType.NORMAL)
-						.append(" of the monthly quota!")
-						.build();
+						.append(" of the monthly quota!");
 
 				chatMessageManager.queue(QueuedMessage.builder()
 						.type(ChatMessageType.CONSOLE)
-						.runeLiteFormattedMessage(message)
+						.runeLiteFormattedMessage(builder.build())
 						.build());
 			});
 		}
 	}
 
-	private void getWidget()
+	public enum TranslationBackend
 	{
-		PolywoofUtils.Interface.CurrentWidget currentWidget = PolywoofUtils.Interface.getCurrentWidget(
-				client.getMouseCanvasPosition(),
-				client.getWidgetRoots(),
-				PolywoofUtils.Interface.Type.ROOT);
-
-		if(currentWidget.exists())
-		{
-			String message = new ChatMessageBuilder().append(ChatColorType.NORMAL)
-					.append("[")
-					.append(ChatColorType.HIGHLIGHT)
-					.append(String.format(
-							"%s %d.%d",
-							currentWidget.type,
-							WidgetUtil.componentToInterface(currentWidget.widget.getId()),
-							WidgetUtil.componentToId(currentWidget.widget.getId())))
-					.append(ChatColorType.NORMAL)
-					.append(String.format("] «%s»", currentWidget.widget.getText()))
-					.build();
-
-			chatMessageManager.queue(QueuedMessage.builder()
-					.type(ChatMessageType.CONSOLE)
-					.runeLiteFormattedMessage(message)
-					.build());
-		}
+		GENERIC,
+		DEEPL
 	}
 }

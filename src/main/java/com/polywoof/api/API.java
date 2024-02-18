@@ -1,17 +1,18 @@
 package com.polywoof.api;
 
-import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.polywoof.PolywoofPlugin;
-import com.polywoof.PolywoofStorage;
-import com.polywoof.PolywoofUtils;
+import com.polywoof.Dictionary;
+import com.polywoof.Utils;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.client.util.ColorUtil;
 
 import javax.annotation.ParametersAreNonnullByDefault;
-import java.io.IOException;
+import java.awt.*;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
@@ -19,12 +20,20 @@ import java.util.List;
 
 @Slf4j @ParametersAreNonnullByDefault public abstract class API
 {
-	protected static final JsonParser parser = new JsonParser();
-	protected static final List<Language> languages = new ArrayList<>();
-
-	public abstract void fetch(List<GameText> textList, Language language, Submittable submittable);
+	public abstract void fetch(List<GameText> textList, Language language, Translatable translatable);
 	public abstract void languageList(Supportable supportable);
 	public abstract Language languageFind(String language);
+
+	@AllArgsConstructor(access = AccessLevel.PROTECTED) public abstract static class Language
+	{
+		public final String code;
+		public final String name;
+	}
+
+	protected static final JsonParser parser = new JsonParser();
+	protected static final List<GameText> history = new ArrayList<>(20);
+	protected static final List<Language> resourceLanguageList = new ArrayList<>();
+	protected static Exception lastError;
 
 	static
 	{
@@ -37,87 +46,137 @@ import java.util.List;
 
 			try(InputStreamReader reader = new InputStreamReader(stream))
 			{
-				JsonArray json = parser.parse(reader).getAsJsonArray();
-				languages.clear();
-
-				for(JsonElement element : json)
+				synchronized(resourceLanguageList)
 				{
-					languages.add(new Language(element.getAsJsonObject()
-							.get("language")
-							.getAsString(), element.getAsJsonObject().get("name").getAsString()));
+					for(JsonElement element : parser.parse(reader).getAsJsonArray())
+					{
+						resourceLanguageList.add(new ResourceLanguage(element.getAsJsonObject()));
+					}
 				}
 			}
 		}
-		catch(IOException error)
+		catch(Exception error)
 		{
 			log.error("Failed to load languages from the resource", error);
 		}
 	}
 
-	@SafeVarargs protected static Language languageFinder(String search, List<Language>... languageList)
+	public final void stored(List<GameText> textList, Language language, Dictionary dictionary, Translatable translatable)
 	{
-		search = search.trim().toUpperCase();
-
-		for(List<Language> languages : languageList)
+		if(dictionary.status())
 		{
-			for(Language language : languages)
+			if(language instanceof ResourceLanguage)
 			{
-				if(language.code.toUpperCase().equals(search))
+				dictionary.select(textList, language, () ->
 				{
-					return language;
-				}
+					textList.removeIf(gameText -> !gameText.cache);
+
+					if(textList.stream().anyMatch(gameText -> gameText.type != GameText.Type.TITLE))
+					{
+						translatable.translate();
+					}
+				});
+			}
+			else
+			{
+				dictionary.select(textList, language, () -> fetch(textList, language, () -> dictionary.insert(textList, language, translatable::translate)));
 			}
 		}
-
-		for(List<Language> languages : languageList)
+		else
 		{
-			for(Language language : languages)
-			{
-				if(language.name.toUpperCase().startsWith(search))
-				{
-					return language;
-				}
-			}
+			fetch(textList, language, translatable);
 		}
-
-		for(List<Language> languages : languageList)
-		{
-			for(Language language : languages)
-			{
-				if(language.name.toUpperCase().contains(search))
-				{
-					return language;
-				}
-			}
-		}
-
-		return new UnknownLanguage(search);
 	}
 
-	public void submit(List<GameText> textList, Language language, PolywoofStorage storage, Submittable submittable)
+	public final void buffered(List<GameText> textList, Language language, Translatable translatable)
 	{
-		if(!storage.status())
+		for(GameText previous : history)
 		{
-			fetch(textList, language, submittable);
-			return;
+			for(GameText gameText : textList)
+			{
+				if(gameText.game.equals(previous.game))
+				{
+					gameText.text = previous.text;
+					gameText.cache = previous.cache;
+				}
+			}
 		}
 
-		storage.select(textList, language, () ->
+		fetch(textList, language, () ->
 		{
-			log.debug("Language select {}", language.name);
-			fetch(textList, language, () ->
+			for(GameText gameText : textList)
 			{
-				log.debug("Language fetch {}", language.name);
-				storage.insert(textList, language, () ->
+				if(!gameText.cache)
 				{
-					log.debug("Language insert {}", language.name);
-					submittable.submit();
-				});
-			});
+					if(history.size() > 19)
+					{
+						history.remove(0);
+					}
+
+					history.add(gameText);
+				}
+			}
+
+			translatable.translate();
 		});
 	}
 
-	public static class GameText
+	public static String statusMessage(Status status)
+	{
+		StringBuilder builder = new StringBuilder(ColorUtil.wrapWithColorTag(status.text, status.color));
+
+		if(status == Status.ON && lastError != null)
+		{
+			builder.append(ColorUtil.wrapWithColorTag(String.format(" [%s]", lastError.getMessage()), Color.RED));
+		}
+
+		return builder.toString();
+	}
+
+	@SafeVarargs protected static Language languageFinder(String query, List<Language>... languageList)
+	{
+		query = query.trim().toUpperCase();
+
+		synchronized(resourceLanguageList)
+		{
+			for(List<Language> languages : languageList)
+			{
+				for(Language language : languages)
+				{
+					if(language.code.toUpperCase().equals(query))
+					{
+						return language;
+					}
+				}
+			}
+
+			for(List<Language> languages : languageList)
+			{
+				for(Language language : languages)
+				{
+					if(language.name.toUpperCase().startsWith(query))
+					{
+						return language;
+					}
+				}
+			}
+
+			for(List<Language> languages : languageList)
+			{
+				for(Language language : languages)
+				{
+					if(language.name.toUpperCase().contains(query))
+					{
+						return language;
+					}
+				}
+			}
+		}
+
+		return new UnknownLanguage(query);
+	}
+
+	public final static class GameText
 	{
 		public final String game;
 		public final Type type;
@@ -136,7 +195,7 @@ import java.util.List;
 
 			if(keepTitle)
 			{
-				text = PolywoofUtils.filter(game);
+				text = Utils.Text.filter(game);
 				cache = true;
 			}
 		}
@@ -155,27 +214,40 @@ import java.util.List;
 		}
 	}
 
-	@AllArgsConstructor(access = AccessLevel.PROTECTED) public static class Language
+	public static final class ResourceLanguage extends Language
 	{
-		public final String code;
-		public final String name;
+		private ResourceLanguage(JsonObject object)
+		{
+			super(object.get("language").getAsString(), object.get("name").getAsString());
+		}
 	}
 
-	public static class UnknownLanguage extends Language
+	public static final class UnknownLanguage extends Language
 	{
-		protected UnknownLanguage(String code)
+		private UnknownLanguage(String code)
 		{
 			super(code, "Unknown");
 		}
 	}
 
-	public interface Submittable
+	public interface Translatable
 	{
-		void submit();
+		void translate();
 	}
 
 	public interface Supportable
 	{
-		void list(List<Language> languages);
+		void list(List<Language> languageList);
+	}
+
+	@AllArgsConstructor(access = AccessLevel.PRIVATE) public enum Status
+	{
+		ON("On", Color.GREEN),
+		OFF("Off", Color.RED),
+		OFFLINE("Offline", Color.ORANGE),
+		GENERIC("Generic", Color.LIGHT_GRAY);
+
+		public final String text;
+		public final Color color;
 	}
 }

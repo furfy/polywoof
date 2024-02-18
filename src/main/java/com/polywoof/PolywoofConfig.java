@@ -35,9 +35,9 @@ import java.awt.*;
 			description = "Choose the backend for translation",
 			section = generalSection,
 			position = 0)
-	default TranslationBackend backend()
+	default PolywoofPlugin.TranslationBackend backend()
 	{
-		return TranslationBackend.DEEPL;
+		return PolywoofPlugin.TranslationBackend.DEEPL;
 	}
 
 	@ConfigItem(
@@ -54,7 +54,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "key",
 			name = "API Key",
-			description = "This is REQUIRED for the DeepL, see www.DeepL.com",
+			description = "This is REQUIRED for the DeepL",
 			secret = true,
 			section = generalSection,
 			position = 2)
@@ -99,7 +99,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "showButton",
 			name = "Quick Actions",
-			description = "Translucent button near translation popups for quick actions",
+			description = "Translucent button near text boxes for quick actions",
 			section = generalSection,
 			position = 6)
 	default boolean showButton()
@@ -115,7 +115,7 @@ import java.awt.*;
 
 	@ConfigItem(
 			keyName = "keepTitle",
-			name = "Keep Title",
+			name = "Keep Titles",
 			description = "Keep context titles as it is",
 			section = translationSection,
 			position = 0)
@@ -126,7 +126,7 @@ import java.awt.*;
 
 	@ConfigItem(
 			keyName = "translateChatMessage",
-			name = "Chat Message",
+			name = "Chat Messages",
 			description = "Translation for chat messages excluding players",
 			section = translationSection,
 			position = 1)
@@ -137,8 +137,8 @@ import java.awt.*;
 
 	@ConfigItem(
 			keyName = "translateExamine",
-			name = "Examine",
-			description = "Translation for object examinations",
+			name = "Examines",
+			description = "Translation for object examines",
 			section = translationSection,
 			position = 2)
 	default boolean translateExamine()
@@ -154,12 +154,12 @@ import java.awt.*;
 			position = 3)
 	default boolean translateOverheadText()
 	{
-		return false;
+		return true;
 	}
 
 	@ConfigItem(
 			keyName = "translateScroll",
-			name = "Scroll",
+			name = "Scrolls",
 			description = "Translation for scrolls",
 			section = translationSection,
 			position = 4)
@@ -221,7 +221,7 @@ import java.awt.*;
 	@Alpha @ConfigItem(
 			keyName = "overlayBackgroundColor",
 			name = "Background Color",
-			description = "Color of translation popups background",
+			description = "Color of text boxes background",
 			section = visualSection,
 			position = 3)
 	default Color overlayBackgroundColor()
@@ -232,7 +232,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "overlayOutline",
 			name = "Show Outline",
-			description = "Outline around translation popups",
+			description = "Outline around text boxes",
 			section = visualSection,
 			position = 4)
 	default boolean overlayOutline()
@@ -242,20 +242,31 @@ import java.awt.*;
 
 	@ConfigSection(
 			name = "Formatting",
-			description = "Text formatting inside of translation popups",
+			description = "Text formatting inside of text boxes",
 			closedByDefault = true,
 			position = 3)
 	String formattingSection = "formattingSection";
+
+	@ConfigItem(
+			keyName = "overlayAlignment",
+			name = "Text Box Alignment",
+			description = "Override default alignment behaviour",
+			section = formattingSection,
+			position = 0)
+	default TextBox.Alignment overlayAlignment()
+	{
+		return TextBox.Alignment.DEFAULT;
+	}
 
 	@ConfigItem(
 			keyName = "textAlignment",
 			name = "Text Alignment",
 			description = "Customize text alignment for unusual positions",
 			section = formattingSection,
-			position = 0)
-	default PolywoofComponent.Behaviour textAlignment()
+			position = 1)
+	default TextBox.Behaviour textAlignment()
 	{
-		return PolywoofComponent.Behaviour.DEFAULT;
+		return TextBox.Behaviour.DEFAULT;
 	}
 
 	@Range(min = 32, max = 2277) @ConfigItem(
@@ -263,7 +274,7 @@ import java.awt.*;
 			name = "Text Wrap Width",
 			description = "Set maximum text length to fit horizontally",
 			section = formattingSection,
-			position = 1)
+			position = 2)
 	default int textWrap()
 	{
 		return 420;
@@ -273,7 +284,8 @@ import java.awt.*;
 			keyName = "filterChatMessage",
 			name = "Chat Messages Filter",
 			description = "Which chat messages should not be translated",
-			section = formattingSection, position = 2)
+			section = formattingSection,
+			position = 3)
 	default String filterChatMessage()
 	{
 		return "^[0-9,]+ x Coins\\.$" +
@@ -289,9 +301,9 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "filterOverheadText",
 			name = "Overhead Text Filter",
-			description = "Which overhead text should not be translated",
+			description = "Which overhead text should be ignored",
 			section = formattingSection,
-			position = 3)
+			position = 4)
 	default String filterOverheadText()
 	{
 		return "^[0-9,\\.]+$";
@@ -300,9 +312,9 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "filterDialogText",
 			name = "Dialog Text Filter",
-			description = "Which dialog text should not be translated",
+			description = "Which dialog text should be skipped",
 			section = formattingSection,
-			position = 4)
+			position = 5)
 	default String filterDialogText()
 	{
 		return "^Congratulations, you've just advanced your .+ level\\." +
@@ -310,11 +322,5 @@ import java.awt.*;
 				"\n^Status: [0-9,]+ damage points left\\." +
 				"\n^Your new task is to kill" +
 				"\n^You're currently assigned to kill";
-	}
-
-	enum TranslationBackend
-	{
-		GENERIC,
-		DEEPL
 	}
 }

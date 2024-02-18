@@ -1,30 +1,33 @@
 package com.polywoof.api;
 
-import com.polywoof.PolywoofUtils;
+import com.polywoof.Utils;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.annotation.ParametersAreNonnullByDefault;
 import java.util.List;
 
-@Slf4j @ParametersAreNonnullByDefault public class Generic extends API
+@Slf4j @ParametersAreNonnullByDefault public final class Generic extends API
 {
-	public void fetch(List<GameText> textList, Language language, Submittable submittable)
+	@Override public void fetch(List<GameText> textList, Language language, Translatable translatable)
 	{
 		for(GameText gameText : textList)
 		{
-			gameText.text = PolywoofUtils.filter(gameText.game);
+			gameText.text = Utils.Text.filter(gameText.game);
 		}
 
-		submittable.submit();
+		translatable.translate();
 	}
 
-	public void languageList(Supportable supportable)
+	@Override public void languageList(Supportable supportable)
 	{
-		supportable.list(languages);
+		synchronized(resourceLanguageList)
+		{
+			supportable.list(resourceLanguageList);
+		}
 	}
 
-	public Language languageFind(String language)
+	@Override public Language languageFind(String language)
 	{
-		return languageFinder(language, languages);
+		return languageFinder(language, resourceLanguageList);
 	}
 }

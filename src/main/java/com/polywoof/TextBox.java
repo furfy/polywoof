@@ -4,80 +4,100 @@ import com.polywoof.api.API;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.JagexColors;
-import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.RenderableEntity;
 import net.runelite.client.ui.overlay.components.ComponentConstants;
 
 import javax.annotation.ParametersAreNonnullByDefault;
 import java.awt.*;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
-@Slf4j @ParametersAreNonnullByDefault public class PolywoofComponent implements RenderableEntity
+@Slf4j @ParametersAreNonnullByDefault public final class TextBox implements RenderableEntity
 {
-	public static int textWrap;
-	public static boolean textShadow;
-	public static boolean boxOutline;
-	public static Color backgroundColor = ComponentConstants.STANDARD_BACKGROUND_COLOR;
+	public static Alignment alignment = Alignment.BOTTOM_LEFT;
 	public static Behaviour behaviour = Behaviour.DEFAULT;
-	public static OverlayPosition position = OverlayPosition.BOTTOM_LEFT;
+	public static Color backgroundColor = ComponentConstants.STANDARD_BACKGROUND_COLOR;
+	public static Font resourceFont = FontManager.getDefaultFont();
+	public static boolean boxOutline;
+	public static boolean textShadow;
+	public static int textWrap;
 
-	private final Rectangle rectangle = new Rectangle();
+	private static Font font;
 	private final List<API.GameText> textList;
-	private final List<TextWrapped> textWrappedList;
-	private Font font;
+	private final List<TextWrapped> textWrappedList = new ArrayList<>(50);
+	private final Rectangle rectangle = new Rectangle();
 	private AlphaComposite composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER);
-	private boolean refresh = true;
 
-	public PolywoofComponent(List<API.GameText> textList, Font font)
+	static
+	{
+		try(InputStream stream = PolywoofPlugin.class.getResourceAsStream("/font.ttf"))
+		{
+			if(stream == null)
+			{
+				throw new IllegalArgumentException();
+			}
+
+			resourceFont = Font.createFont(Font.TRUETYPE_FONT, stream);
+		}
+		catch(Exception error)
+		{
+			log.error("Failed to load the default font", error);
+		}
+	}
+
+	public TextBox(List<API.GameText> textList, String fontName, int fontSize)
 	{
 		this.textList = textList;
-		this.font = font;
-		textWrappedList = new ArrayList<>(textList.size());
+		setFont(fontName, fontSize);
 	}
 
 	@Override public Dimension render(Graphics2D graphics)
 	{
-		update(graphics);
-
 		int x = 0, y = 0, offset = 0;
 
-		switch(position)
+		switch(alignment)
 		{
 			case TOP_LEFT:
+			case LEFT:
 			case BOTTOM_LEFT:
 				x = rectangle.x;
 				break;
-			case TOP_CENTER:
-			case ABOVE_CHATBOX_RIGHT:
+			case DEFAULT:
+			case TOP:
+			case CENTER:
+			case BOTTOM:
 				x = rectangle.x - rectangle.width / 2;
 				break;
 			case TOP_RIGHT:
-			case CANVAS_TOP_RIGHT:
+			case RIGHT:
 			case BOTTOM_RIGHT:
 				x = rectangle.x - rectangle.width;
 				break;
 		}
 
-		switch(position)
+		switch(alignment)
 		{
+			case DEFAULT:
 			case TOP_LEFT:
+			case TOP:
 			case TOP_RIGHT:
-			case CANVAS_TOP_RIGHT:
-			case TOP_CENTER:
+			case LEFT:
+			case CENTER:
+			case RIGHT:
 				y = rectangle.y;
 				break;
 			case BOTTOM_LEFT:
-			case ABOVE_CHATBOX_RIGHT:
+			case BOTTOM:
 			case BOTTOM_RIGHT:
 				y = rectangle.y - rectangle.height;
 				break;
 		}
 
-		graphics.setFont(font);
-		graphics.setComposite(composite);
 		graphics.setColor(backgroundColor);
+		graphics.setComposite(composite);
 		graphics.fillRect(x, y, rectangle.width, rectangle.height);
 
 		if(boxOutline)
@@ -92,13 +112,14 @@ import java.util.List;
 
 		for(TextWrapped textWrapped : textWrappedList)
 		{
-			for(String text : textWrapped.wrapped)
+			for(String text : textWrapped.wrapList)
 			{
-				switch(position)
+				switch(alignment)
 				{
 					case TOP_LEFT:
+					case LEFT:
 					case BOTTOM_LEFT:
-						switch(textWrapped.text.type)
+						switch(textWrapped.gameText.type)
 						{
 							case TITLE:
 							case OVERHEAD:
@@ -120,9 +141,11 @@ import java.util.List;
 								}
 						}
 						break;
-					case TOP_CENTER:
-					case ABOVE_CHATBOX_RIGHT:
-						switch(textWrapped.text.type)
+					case DEFAULT:
+					case TOP:
+					case CENTER:
+					case BOTTOM:
+						switch(textWrapped.gameText.type)
 						{
 							case TITLE:
 							case OVERHEAD:
@@ -145,9 +168,9 @@ import java.util.List;
 						}
 						break;
 					case TOP_RIGHT:
-					case CANVAS_TOP_RIGHT:
+					case RIGHT:
 					case BOTTOM_RIGHT:
-						switch(textWrapped.text.type)
+						switch(textWrapped.gameText.type)
 						{
 							case TITLE:
 							case OVERHEAD:
@@ -171,20 +194,25 @@ import java.util.List;
 						break;
 				}
 
-				switch(position)
+				switch(alignment)
 				{
+					case DEFAULT:
 					case TOP_LEFT:
+					case TOP:
 					case TOP_RIGHT:
-					case CANVAS_TOP_RIGHT:
-					case TOP_CENTER:
+					case LEFT:
+					case CENTER:
+					case RIGHT:
 						y = rectangle.y + metrics.getDescent() * 2 + offset + metrics.getAscent();
 						break;
 					case BOTTOM_LEFT:
-					case ABOVE_CHATBOX_RIGHT:
+					case BOTTOM:
 					case BOTTOM_RIGHT:
 						y = rectangle.y + metrics.getDescent() * 2 + offset + metrics.getAscent() - rectangle.height;
 						break;
 				}
+
+				graphics.setFont(font);
 
 				if(textShadow)
 				{
@@ -192,7 +220,7 @@ import java.util.List;
 					graphics.drawString(text, x + 1, y + 1);
 				}
 
-				switch(textWrapped.text.type)
+				switch(textWrapped.gameText.type)
 				{
 					case TITLE:
 						graphics.setColor(JagexColors.DARK_ORANGE_INTERFACE_TEXT);
@@ -219,108 +247,135 @@ import java.util.List;
 		return rectangle.getSize();
 	}
 
-	private void update(Graphics2D graphics)
+	public Dimension update(Graphics2D graphics)
 	{
-		if(refresh)
+		if(rectangle.isEmpty())
 		{
-			refresh = false;
-		}
-		else
-		{
-			return;
-		}
+			FontMetrics metrics = graphics.getFontMetrics(font);
 
-		rectangle.setSize(0, 0);
-		textWrappedList.clear();
+			textWrappedList.clear();
 
-		FontMetrics metrics = graphics.getFontMetrics(font);
-
-		for(API.GameText gameText : textList)
-		{
-			List<String> test = new ArrayList<>();
-			test.add(gameText.text);
-
-			for(int i = 0; i < test.size(); i++)
+			for(API.GameText gameText : textList)
 			{
-				String text = test.get(i);
+				List<String> wrapList = new ArrayList<>();
+				wrapList.add(gameText.text);
 
-				if(metrics.stringWidth(text) <= textWrap - metrics.getDescent() * 4)
+				for(int i = 0; i < wrapList.size(); i++)
 				{
-					rectangle.width = Math.max(rectangle.width, metrics.stringWidth(text));
-					continue;
+					String text = wrapList.get(i);
+
+					if(metrics.stringWidth(text) > textWrap - metrics.getDescent() * 4)
+					{
+						int wrap = 0, word = 0;
+
+						for(int j = 0; j < text.length(); j++)
+						{
+							if(metrics.charsWidth(text.toCharArray(), 0, j + 1) > textWrap - metrics.getDescent() * 4)
+							{
+								int cut = Math.min(wrap, word);
+
+								if(cut != 0 || (cut = Math.max(wrap, word)) != 0)
+								{
+									String begin = text.substring(0, cut);
+									String end = text.substring(cut);
+									wrapList.set(i, begin);
+
+									if(!end.isEmpty())
+									{
+										wrapList.add(i + 1, end);
+									}
+
+									rectangle.width = Math.max(rectangle.width, metrics.stringWidth(begin));
+								}
+
+								break;
+							}
+
+							switch(text.charAt(j))
+							{
+								case ' ':
+								case '.':
+								case ',':
+								case ':':
+								case ';':
+								case '-':
+									wrap = j + 1;
+									word = 0;
+									break;
+								default:
+									word = j;
+									break;
+							}
+						}
+					}
+					else
+					{
+						rectangle.width = Math.max(rectangle.width, metrics.stringWidth(text));
+					}
 				}
 
-				int wrap = 0, word = 0;
-
-				for(int j = 0; j < text.length(); j++)
-				{
-					if(metrics.charsWidth(text.toCharArray(), 0, j + 1) > textWrap - metrics.getDescent() * 4)
-					{
-						int cut = Math.min(wrap, word);
-
-						if(cut == 0 && (cut = Math.max(wrap, word)) == 0)
-						{
-							break;
-						}
-
-						String begin = text.substring(0, cut);
-						String end = text.substring(cut);
-						test.set(i, begin);
-
-						if(!end.isEmpty())
-						{
-							test.add(i + 1, end);
-						}
-
-						rectangle.width = Math.max(rectangle.width, metrics.stringWidth(begin));
-						break;
-					}
-
-					switch(text.charAt(j))
-					{
-						case ' ':
-						case '.':
-						case ',':
-						case ':':
-						case ';':
-						case '-':
-							wrap = j + 1;
-							word = 0;
-							break;
-						default:
-							word = j;
-							break;
-					}
-				}
+				textWrappedList.add(new TextWrapped(gameText, wrapList));
+				rectangle.height += metrics.getAscent() * wrapList.size() + metrics.getDescent() * (wrapList.size() - 1);
 			}
 
-			rectangle.height += metrics.getAscent() * test.size() + metrics.getDescent() * (test.size() - 1);
-			textWrappedList.add(new TextWrapped(gameText, test));
+			if(textWrappedList.size() > 1)
+			{
+				rectangle.height += metrics.getDescent() * 2 * (textWrappedList.size() - 1);
+			}
+
+			rectangle.width += metrics.getDescent() * 4;
+			rectangle.height += metrics.getDescent() * 4;
 		}
 
-		if(textWrappedList.size() > 1)
-		{
-			rectangle.height += metrics.getDescent() * 2 * (textWrappedList.size() - 1);
-		}
-
-		rectangle.width += metrics.getDescent() * 4;
-		rectangle.height += metrics.getDescent() * 4;
-
-		log.debug("Component is set to {}x{}", rectangle.width, rectangle.height);
+		return rectangle.getSize();
 	}
 
 	public void setLocation(int x, int y)
 	{
+		switch(alignment)
+		{
+			case TOP_RIGHT:
+			case RIGHT:
+			case BOTTOM_RIGHT:
+				x += PolywoofOverlay.iconSize.width;
+				break;
+			case DEFAULT:
+			case TOP:
+			case CENTER:
+			case BOTTOM:
+				x += PolywoofOverlay.iconSize.width / 2;
+				break;
+		}
+
+		switch(alignment)
+		{
+			case BOTTOM_LEFT:
+			case BOTTOM:
+			case BOTTOM_RIGHT:
+				y += PolywoofOverlay.iconSize.height;
+				break;
+			case DEFAULT:
+			case LEFT:
+			case CENTER:
+			case RIGHT:
+				y += PolywoofOverlay.iconSize.height / 2;
+		}
+
 		rectangle.setLocation(x, y);
 	}
 
-	public void setFontSize(int size)
+	public void setFont(String font, int size)
 	{
-		if(font.getSize() != size)
+		if(font.equals("CozetteVector"))
 		{
-			font = font.deriveFont((float)size);
-			refresh = true;
+			TextBox.font = resourceFont.deriveFont(Font.PLAIN, size);
 		}
+		else
+		{
+			TextBox.font = new Font(font, Font.PLAIN, size);
+		}
+
+		rectangle.setSize(0, 0);
 	}
 
 	public void setOpacity(float opacity)
@@ -328,10 +383,24 @@ import java.util.List;
 		composite = composite.derive(opacity);
 	}
 
-	@AllArgsConstructor(access = AccessLevel.PRIVATE) private static class TextWrapped
+	@AllArgsConstructor(access = AccessLevel.PRIVATE) private static final class TextWrapped
 	{
-		public final API.GameText text;
-		public final List<String> wrapped;
+		public final API.GameText gameText;
+		public final List<String> wrapList;
+	}
+
+	public enum Alignment
+	{
+		DEFAULT,
+		TOP_LEFT,
+		TOP,
+		TOP_RIGHT,
+		LEFT,
+		CENTER,
+		RIGHT,
+		BOTTOM_LEFT,
+		BOTTOM,
+		BOTTOM_RIGHT
 	}
 
 	public enum Behaviour
