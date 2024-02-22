@@ -8,20 +8,19 @@ import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.tooltip.Tooltip;
 import net.runelite.client.ui.overlay.tooltip.TooltipManager;
+import net.runelite.client.util.ImageUtil;
 
 import javax.annotation.ParametersAreNonnullByDefault;
-import javax.imageio.ImageIO;
 import javax.inject.Inject;
 import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.io.InputStream;
 import java.util.List;
 import java.util.*;
 
 @Slf4j @ParametersAreNonnullByDefault public class PolywoofOverlay extends Overlay
 {
 	public static final Dimension iconSize = new Dimension(30, 30);
-	public static BufferedImage resourceIcon;
+	public static BufferedImage resourceIcon = ImageUtil.loadImageResource(PolywoofPlugin.class, "/icon.png");
 
 	private final List<TextBoxData> textBoxList = new ArrayList<>();
 	private final Map<String, TextBoxData> textBoxMap = new HashMap<>();
@@ -32,23 +31,6 @@ import java.util.*;
 	@Inject private Client client;
 	@Inject private PolywoofConfig config;
 	@Inject private TooltipManager tooltipManager;
-
-	static
-	{
-		try(InputStream stream = PolywoofPlugin.class.getResourceAsStream("/icon.png"))
-		{
-			if(stream == null)
-			{
-				throw new IllegalArgumentException();
-			}
-
-			resourceIcon = ImageIO.read(stream);
-		}
-		catch(Exception error)
-		{
-			log.error("Failed to load the icon image", error);
-		}
-	}
 
 	@Override public Dimension render(Graphics2D graphics)
 	{

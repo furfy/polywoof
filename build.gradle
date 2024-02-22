@@ -18,7 +18,7 @@ dependencies {
 	compileOnly 'org.projectlombok:lombok:1.18.30'
 	annotationProcessor 'org.projectlombok:lombok:1.18.30'
 
-	implementation 'com.h2database:h2:2.1.214'
+	implementation 'com.h2database:h2:2.1.212'
 
 	testImplementation 'junit:junit:4.13.2'
 	testImplementation group: 'net.runelite', name: 'client', version: runeLiteVersion
@@ -26,7 +26,7 @@ dependencies {
 }
 
 group = 'com.polywoof'
-version = '2.01'
+version = '2.02'
 
 tasks.withType(JavaCompile) {
 	options.encoding = 'UTF-8'
