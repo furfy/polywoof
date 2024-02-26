@@ -16,15 +16,15 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Collectors;
 
-@Slf4j @ParametersAreNonnullByDefault public final class DeepL extends API
+@Slf4j @ParametersAreNonnullByDefault public final class Google extends API
 {
 	private static final List<Language> trustedLanguageList = new ArrayList<>();
 	private static final MediaType mediaType = MediaType.parse("Content-Type: application/json");
+	private static final String endpoint = "https://translation.googleapis.com";
 	private final OkHttpClient client;
 	private String key;
-	private String endpoint;
 
-	public DeepL(OkHttpClient client, String key)
+	public Google(OkHttpClient client, String key)
 	{
 		this.client = client;
 		update(key);
@@ -52,18 +52,14 @@ import java.util.stream.Collectors;
 					}
 
 					JsonObject jsonObject = new JsonObject();
-					jsonObject.add("text", jsonArray);
-					jsonObject.addProperty("target_lang", language.code);
-					jsonObject.addProperty("context", "runescape; dungeons and dragons; medieval fantasy;");
-					jsonObject.addProperty("source_lang", "en");
-					jsonObject.addProperty("preserve_formatting", true);
-					jsonObject.addProperty("formality", "prefer_less");
-					jsonObject.addProperty("tag_handling", "html");
-					jsonObject.addProperty("non_splitting_tags", "br");
+					jsonObject.add("q", jsonArray);
+					jsonObject.addProperty("target", language.code);
+					jsonObject.addProperty("format", "html");
+					jsonObject.addProperty("source", "en");
 
-					fetch("/v2/translate", FormBody.create(mediaType, jsonObject.toString()), body ->
+					fetch("/language/translate/v2", FormBody.create(mediaType, jsonObject.toString()), body ->
 					{
-						JsonArray json = parser.parse(body).getAsJsonObject().getAsJsonArray("translations");
+						JsonArray json = parser.parse(body).getAsJsonObject().getAsJsonObject("data").getAsJsonArray("translations");
 
 						if(bodyText.size() == json.size())
 						{
@@ -73,7 +69,7 @@ import java.util.stream.Collectors;
 							{
 								if(!gameText.cache)
 								{
-									gameText.text = StringEscapeUtils.unescapeHtml4(iterator.next().getAsJsonObject().get("text").getAsString());
+									gameText.text = StringEscapeUtils.unescapeHtml4(iterator.next().getAsJsonObject().get("translatedText").getAsString());
 								}
 							}
 						}
@@ -88,13 +84,13 @@ import java.util.stream.Collectors;
 	@Override public void languageList(Supportable supportable)
 	{
 		JsonObject jsonObject = new JsonObject();
-		jsonObject.addProperty("type", "target");
+		jsonObject.addProperty("target", "en");
 
-		fetch("/v2/languages", FormBody.create(mediaType, jsonObject.toString()), body ->
+		fetch("/language/translate/v2/languages", FormBody.create(mediaType, jsonObject.toString()), body ->
 		{
 			synchronized(trustedLanguageList)
 			{
-				JsonArray json = parser.parse(body).getAsJsonArray();
+				JsonArray json = parser.parse(body).getAsJsonObject().getAsJsonObject("data").getAsJsonArray("languages");
 				trustedLanguageList.clear();
 
 				for(JsonElement element : json)
@@ -123,7 +119,7 @@ import java.util.stream.Collectors;
 			{
 				log.debug("Trying to create the {} request", path);
 				Request request = new Request.Builder().addHeader("User-Agent", RuneLite.USER_AGENT + " (polywoof)")
-						.addHeader("Authorization", "DeepL-Auth-Key " + key)
+						.addHeader("X-goog-api-key", key)
 						.addHeader("Accept", "application/json")
 						.addHeader("Content-Type", "application/json")
 						.addHeader("Content-Length", String.valueOf(requestBody.contentLength()))
@@ -164,19 +160,9 @@ import java.util.stream.Collectors;
 		}
 	}
 
-	public void usage(Usable usable)
-	{
-		fetch("/v2/usage", FormBody.create(mediaType, "{}"), body ->
-		{
-			JsonObject json = parser.parse(body).getAsJsonObject();
-			usable.usage(json.get("character_count").getAsLong(), json.get("character_limit").getAsLong());
-		});
-	}
-
 	public void update(String key)
 	{
 		this.key = key;
-		endpoint = key.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
 		languageList(languageList -> languageList.forEach(language -> log.debug("{} - {}", language.code, language.name)));
 	}
 
@@ -187,17 +173,17 @@ import java.util.stream.Collectors;
 			case 200:
 				return;
 			case 400:
-				throw new Exception("Bad request");
+				throw new Exception("Invalid argument");
+			case 401:
+				throw new Exception("Unauthenticated");
 			case 403:
-				throw new Exception("Forbidden");
+				throw new Exception("Permission denied");
 			case 429:
-				throw new Exception("Too many requests");
-			case 456:
-				throw new Exception("Quota exceeded");
+				throw new Exception("Resource exhausted");
 			case 501:
 				throw new Exception("Not implemented");
 			case 503:
-				throw new Exception("Service unavailable");
+				throw new Exception("Unavailable");
 			default:
 				throw new Exception(String.valueOf(code));
 		}
@@ -214,10 +200,5 @@ import java.util.stream.Collectors;
 	public interface Receivable
 	{
 		void receive(String body) throws Exception;
-	}
-
-	public interface Usable
-	{
-		void usage(long characterCount, long characterLimit);
 	}
 }

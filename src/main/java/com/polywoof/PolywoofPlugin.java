@@ -4,6 +4,7 @@ import com.google.inject.Provides;
 import com.polywoof.api.API;
 import com.polywoof.api.DeepL;
 import com.polywoof.api.Generic;
+import com.polywoof.api.Google;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.*;
@@ -47,7 +48,7 @@ import java.util.List;
 				"translation"})
 public class PolywoofPlugin extends Plugin implements MouseListener
 {
-	private final List<API.GameText> previousList = new ArrayList<>(50);
+	private final List<API.GameText> previousList = new ArrayList<>();
 	private final List<String> examineList = new ArrayList<>();
 	private API backend;
 	private Dictionary dictionary;
@@ -249,6 +250,22 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 				case "backend":
 					changeBackend(config.backend());
 					break;
+				case "language":
+					if(backend.languageFind(config.language()) instanceof API.UnknownLanguage)
+					{
+						ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.NORMAL)
+								.append("Current language is ")
+								.append(ChatColorType.HIGHLIGHT)
+								.append("not supported")
+								.append(ChatColorType.NORMAL)
+								.append("!");
+
+						chatMessageManager.queue(QueuedMessage.builder()
+								.type(ChatMessageType.CONSOLE)
+								.runeLiteFormattedMessage(builder.build())
+								.build());
+					}
+					break;
 				case "key":
 					if(config.key().equals("pesik"))
 					{
@@ -263,6 +280,11 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 					if(backend instanceof DeepL)
 					{
 						((DeepL)backend).update(config.key());
+					}
+
+					if(backend instanceof Google)
+					{
+						((Google)backend).update(config.key());
 					}
 					break;
 				case "showButton":
@@ -294,7 +316,7 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 	{
 		if(config.toggle())
 		{
-			List<API.GameText> textList = new ArrayList<>(50);
+			List<API.GameText> textList = new ArrayList<>();
 
 			switch(chatMessage.getType())
 			{
@@ -337,7 +359,7 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 	{
 		if(config.toggle())
 		{
-			List<API.GameText> textList = new ArrayList<>(50);
+			List<API.GameText> textList = new ArrayList<>();
 			Widget dialogPlayerName = client.getWidget(InterfaceID.DIALOG_PLAYER, 4);
 			Widget dialogPlayerText = client.getWidget(ComponentID.DIALOG_PLAYER_TEXT);
 			Widget dialogNpcName = client.getWidget(ComponentID.DIALOG_NPC_NAME);
@@ -514,7 +536,7 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 	{
 		if(config.toggle() && config.translateOverheadText() && overheadTextChanged.getActor() instanceof NPC)
 		{
-			List<API.GameText> textList = new ArrayList<>(50);
+			List<API.GameText> textList = new ArrayList<>();
 			NPC npc = (NPC)overheadTextChanged.getActor();
 
 			switch(npc.getId())
@@ -565,7 +587,7 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 
 	private void changeBackend(TranslationBackend backend)
 	{
-		log.info("Trying to set the {} backend", backend);
+		log.info("Trying to set the {} backend", Text.titleCase(backend));
 		switch(backend)
 		{
 			case GENERIC:
@@ -576,24 +598,14 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 				this.backend = new DeepL(okHttpClient, config.key());
 				dictionary.open();
 				break;
+			case GOOGLE:
+				this.backend = new Google(okHttpClient, config.key());
+				dictionary.open();
 		}
 	}
 
 	private void verifyUsage()
 	{
-		if(backend instanceof Generic)
-		{
-			ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.HIGHLIGHT)
-					.append("Generic")
-					.append(ChatColorType.NORMAL)
-					.append(" backend doesn't have any quota.");
-
-			chatMessageManager.queue(QueuedMessage.builder()
-					.type(ChatMessageType.CONSOLE)
-					.runeLiteFormattedMessage(builder.build())
-					.build());
-		}
-
 		if(backend instanceof DeepL)
 		{
 			((DeepL)backend).usage((characterCount, characterLimit) ->
@@ -611,11 +623,26 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 						.build());
 			});
 		}
+		else
+		{
+			ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.NORMAL)
+					.append("Not implemented for ")
+					.append(ChatColorType.HIGHLIGHT)
+					.append(Text.titleCase(config.backend()))
+					.append(ChatColorType.NORMAL)
+					.append(" backend.");
+
+			chatMessageManager.queue(QueuedMessage.builder()
+					.type(ChatMessageType.CONSOLE)
+					.runeLiteFormattedMessage(builder.build())
+					.build());
+		}
 	}
 
 	public enum TranslationBackend
 	{
 		GENERIC,
-		DEEPL
+		DEEPL,
+		GOOGLE
 	}
 }

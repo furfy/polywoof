@@ -92,12 +92,13 @@ import java.util.List;
 	{
 		for(GameText previous : history)
 		{
+			log.info(previous.game);
 			for(GameText gameText : textList)
 			{
 				if(gameText.game.equals(previous.game))
 				{
 					gameText.text = previous.text;
-					gameText.cache = previous.cache;
+					gameText.cache = true;
 				}
 			}
 		}

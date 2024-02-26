@@ -25,14 +25,14 @@ import java.awt.*;
 
 	@ConfigSection(
 			name = "General",
-			description = "Settings for overall experience",
+			description = "Settings for Overall Experience",
 			position = 0)
 	String generalSection = "generalSection";
 
 	@ConfigItem(
 			keyName = "backend",
 			name = "Service",
-			description = "Choose the backend for translation",
+			description = "Choose the Backend for translation",
 			section = generalSection,
 			position = 0)
 	default PolywoofPlugin.TranslationBackend backend()
@@ -43,7 +43,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "language",
 			name = "Language",
-			description = "Type your desired language",
+			description = "Type your desired Language",
 			section = generalSection,
 			position = 1)
 	default String language()
@@ -54,7 +54,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "key",
 			name = "API Key",
-			description = "This is REQUIRED for the DeepL",
+			description = "See the Guide how to get the Key",
 			secret = true,
 			section = generalSection,
 			position = 2)
@@ -66,7 +66,7 @@ import java.awt.*;
 	@Range(min = 1, max = 99) @ConfigItem(
 			keyName = "readingSpeed",
 			name = "Reading Skill",
-			description = "Your reading skill level",
+			description = "Your Reading Skill level",
 			section = generalSection,
 			position = 3)
 	default int readingSpeed()
@@ -77,7 +77,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "showUsage",
 			name = "Show API Usage",
-			description = "Show your monthly usage in the chat on logon",
+			description = "Show your Monthly Usage when you logon",
 			section = generalSection,
 			position = 4)
 	default boolean showUsage()
@@ -87,8 +87,8 @@ import java.awt.*;
 
 	@ConfigItem(
 			keyName = "showTitle",
-			name = "Show Title",
-			description = "Title with the context where text came from",
+			name = "Show Titles",
+			description = "Context Titles where text comes from",
 			section = generalSection,
 			position = 5)
 	default boolean showTitle()
@@ -99,7 +99,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "showButton",
 			name = "Quick Actions",
-			description = "Translucent button near text boxes for quick actions",
+			description = "Translucent Button near Text Boxes for Quick Actions",
 			section = generalSection,
 			position = 6)
 	default boolean showButton()
@@ -109,14 +109,14 @@ import java.awt.*;
 
 	@ConfigSection(
 			name = "Translation",
-			description = "Things to be translated",
+			description = "Things to be Translated",
 			position = 1)
 	String translationSection = "translationSection";
 
 	@ConfigItem(
 			keyName = "keepTitle",
 			name = "Keep Titles",
-			description = "Keep context titles as it is",
+			description = "Don't translate Context Titles",
 			section = translationSection,
 			position = 0)
 	default boolean keepTitle()
@@ -127,7 +127,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "translateChatMessage",
 			name = "Chat Messages",
-			description = "Translation for chat messages excluding players",
+			description = "Translation for Chat Messages excluding players",
 			section = translationSection,
 			position = 1)
 	default boolean translateChatMessage()
@@ -138,7 +138,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "translateExamine",
 			name = "Examines",
-			description = "Translation for object examines",
+			description = "Translation for Object Examines",
 			section = translationSection,
 			position = 2)
 	default boolean translateExamine()
@@ -149,7 +149,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "translateOverheadText",
 			name = "Overhead Text",
-			description = "Translation for overhead text excluding players",
+			description = "Translation for Overhead Text excluding players",
 			section = translationSection,
 			position = 3)
 	default boolean translateOverheadText()
@@ -160,7 +160,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "translateScroll",
 			name = "Scrolls",
-			description = "Translation for scrolls",
+			description = "Translation for Scrolls",
 			section = translationSection,
 			position = 4)
 	default boolean translateScroll()
@@ -171,7 +171,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "translateTreasureClue",
 			name = "Treasure Clues",
-			description = "Translation for treasure clues",
+			description = "Translation for Treasure Clues",
 			section = translationSection,
 			position = 5)
 	default boolean translateTreasureClue()
@@ -181,14 +181,14 @@ import java.awt.*;
 
 	@ConfigSection(
 			name = "Visual",
-			description = "Font and visual tweaks",
+			description = "Font and Visual tweaks",
 			position = 2)
 	String visualSection = "visualSection";
 
 	@ConfigItem(
 			keyName = "fontName",
 			name = "Font Name",
-			description = "Choose your favorite font",
+			description = "Choose your favorite Font",
 			section = visualSection,
 			position = 0)
 	default String fontName()
@@ -199,7 +199,7 @@ import java.awt.*;
 	@Range(min = 1, max = 99) @ConfigItem(
 			keyName = "fontSize",
 			name = "Font Size",
-			description = "Adjust the font size for more comfort",
+			description = "Adjust the Font Size for more comfort",
 			section = visualSection,
 			position = 1)
 	default int fontSize()
@@ -210,7 +210,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "textShadow",
 			name = "Text Shadow",
-			description = "Text shadow for better visibility",
+			description = "Text Shadow for better visibility",
 			section = visualSection,
 			position = 2)
 	default boolean textShadow()
@@ -221,7 +221,7 @@ import java.awt.*;
 	@Alpha @ConfigItem(
 			keyName = "overlayBackgroundColor",
 			name = "Background Color",
-			description = "Color of text boxes background",
+			description = "Color of Text Boxes background",
 			section = visualSection,
 			position = 3)
 	default Color overlayBackgroundColor()
@@ -232,7 +232,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "overlayOutline",
 			name = "Show Outline",
-			description = "Outline around text boxes",
+			description = "Outline around Text Boxes",
 			section = visualSection,
 			position = 4)
 	default boolean overlayOutline()
@@ -242,7 +242,7 @@ import java.awt.*;
 
 	@ConfigSection(
 			name = "Formatting",
-			description = "Text formatting inside of text boxes",
+			description = "Text formatting inside of Text Boxes",
 			closedByDefault = true,
 			position = 3)
 	String formattingSection = "formattingSection";
@@ -250,7 +250,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "overlayAlignment",
 			name = "Text Box Alignment",
-			description = "Override default alignment behaviour",
+			description = "Override default Alignment Behaviour",
 			section = formattingSection,
 			position = 0)
 	default TextBox.Alignment overlayAlignment()
@@ -261,7 +261,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "textAlignment",
 			name = "Text Alignment",
-			description = "Customize text alignment for unusual positions",
+			description = "Customize Text Alignment for unusual positions",
 			section = formattingSection,
 			position = 1)
 	default TextBox.Behaviour textAlignment()
@@ -272,7 +272,7 @@ import java.awt.*;
 	@Range(min = 32, max = 2277) @ConfigItem(
 			keyName = "textWrap",
 			name = "Text Wrap Width",
-			description = "Set maximum text length to fit horizontally",
+			description = "Set maximum Text Length to fit horizontally",
 			section = formattingSection,
 			position = 2)
 	default int textWrap()
@@ -283,7 +283,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "filterChatMessage",
 			name = "Chat Messages Filter",
-			description = "Which chat messages should not be translated",
+			description = "Which Chat Messages should not be translated",
 			section = formattingSection,
 			position = 3)
 	default String filterChatMessage()
@@ -301,7 +301,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "filterOverheadText",
 			name = "Overhead Text Filter",
-			description = "Which overhead text should be ignored",
+			description = "Which Overhead Text should be ignored",
 			section = formattingSection,
 			position = 4)
 	default String filterOverheadText()
@@ -312,7 +312,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "filterDialogText",
 			name = "Dialog Text Filter",
-			description = "Which dialog text should be skipped",
+			description = "Which Dialog Text should be skipped",
 			section = formattingSection,
 			position = 5)
 	default String filterDialogText()

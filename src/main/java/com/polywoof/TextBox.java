@@ -27,7 +27,7 @@ import java.util.List;
 
 	private static Font font;
 	private final List<API.GameText> textList;
-	private final List<TextWrapped> textWrappedList = new ArrayList<>(50);
+	private final List<TextWrapped> textWrappedList = new ArrayList<>();
 	private final Rectangle rectangle = new Rectangle();
 	private AlphaComposite composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER);
 
@@ -237,7 +237,6 @@ import java.util.List;
 				}
 
 				graphics.drawString(text, x, y);
-
 				offset += metrics.getAscent() + metrics.getDescent();
 			}
 
