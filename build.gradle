@@ -26,7 +26,7 @@ dependencies {
 }
 
 group = 'com.polywoof'
-version = '2.03'
+version = '2.04'
 
 tasks.withType(JavaCompile) {
 	options.encoding = 'UTF-8'

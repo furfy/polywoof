@@ -20,7 +20,7 @@ import java.util.List;
 
 @Slf4j @ParametersAreNonnullByDefault public abstract class API
 {
-	public abstract void fetch(List<GameText> textList, Language language, Translatable translatable);
+	public abstract void fetch(List<GameText> textList, Language language, boolean detectSource, Translatable translatable);
 	public abstract void languageList(Supportable supportable);
 	public abstract Language languageFind(String language);
 
@@ -31,7 +31,7 @@ import java.util.List;
 	}
 
 	protected static final JsonParser parser = new JsonParser();
-	protected static final List<GameText> history = new ArrayList<>(20);
+	protected static final List<GameText> memory = new ArrayList<>();
 	protected static final List<Language> resourceLanguageList = new ArrayList<>();
 	protected static Exception lastError;
 
@@ -61,65 +61,77 @@ import java.util.List;
 		}
 	}
 
-	public final void stored(List<GameText> textList, Language language, Dictionary dictionary, Translatable translatable)
+	public final void fromDictionary(List<GameText> textList, Language language, Dictionary dictionary, Translatable translatable)
 	{
-		if(dictionary.status())
+		if(!textList.isEmpty() && !(language instanceof UnknownLanguage))
 		{
-			if(language instanceof ResourceLanguage)
+			if(this instanceof Generic || !dictionary.status())
 			{
-				dictionary.select(textList, language, () ->
-				{
-					textList.removeIf(gameText -> !gameText.cache);
-
-					if(textList.stream().anyMatch(gameText -> gameText.type != GameText.Type.TITLE))
-					{
-						translatable.translate();
-					}
-				});
+				fetch(textList, language, false, translatable);
 			}
 			else
 			{
-				dictionary.select(textList, language, () -> fetch(textList, language, () -> dictionary.insert(textList, language, translatable::translate)));
+				if(language instanceof ResourceLanguage)
+				{
+					dictionary.select(textList, language, () ->
+					{
+						textList.removeIf(gameText -> !gameText.cache);
+
+						if(textList.stream().anyMatch(gameText -> gameText.type != GameText.Type.TITLE))
+						{
+							translatable.translate();
+						}
+					});
+				}
+				else
+				{
+					dictionary.select(textList, language, () -> fetch(textList, language, false, () -> dictionary.insert(textList, language, translatable::translate)));
+				}
 			}
-		}
-		else
-		{
-			fetch(textList, language, translatable);
 		}
 	}
 
-	public final void buffered(List<GameText> textList, Language language, Translatable translatable)
+	public final void fromMemory(List<GameText> textList, Language language, Translatable translatable)
 	{
-		for(GameText previous : history)
+		if(!textList.isEmpty() && !(language instanceof UnknownLanguage))
 		{
-			log.info(previous.game);
-			for(GameText gameText : textList)
+			if(this instanceof Generic)
 			{
-				if(gameText.game.equals(previous.game))
-				{
-					gameText.text = previous.text;
-					gameText.cache = true;
-				}
+				fetch(textList, language, true, translatable);
 			}
-		}
-
-		fetch(textList, language, () ->
-		{
-			for(GameText gameText : textList)
+			else
 			{
-				if(!gameText.cache)
+				for(GameText memoryText : memory)
 				{
-					if(history.size() > 19)
+					for(GameText gameText : textList)
 					{
-						history.remove(0);
+						if(gameText.game.equals(memoryText.game))
+						{
+							gameText.text = memoryText.text;
+							gameText.cache = true;
+						}
+					}
+				}
+
+				fetch(textList, language, true, () ->
+				{
+					for(GameText gameText : textList)
+					{
+						if(!gameText.cache)
+						{
+							while(memory.size() > 29)
+							{
+								memory.remove(0);
+							}
+
+							memory.add(gameText);
+						}
 					}
 
-					history.add(gameText);
-				}
+					translatable.translate();
+				});
 			}
-
-			translatable.translate();
-		});
+		}
 	}
 
 	public static String statusMessage(Status status)
@@ -219,7 +231,7 @@ import java.util.List;
 	{
 		private ResourceLanguage(JsonObject object)
 		{
-			super(object.get("language").getAsString(), object.get("name").getAsString());
+			super(object.get("code").getAsString(), object.get("name").getAsString());
 		}
 	}
 

@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
 {
 	public static final class Text
 	{
-		private static final Matcher[] matchers = {
+		private static final Matcher[] filterMatchers = {
 				Pattern.compile("<br>").matcher(""),
 				Pattern.compile("<.*?>").matcher(""),
 				Pattern.compile("  +").matcher("")
@@ -26,7 +26,7 @@ import java.util.regex.Pattern;
 
 		public static String filter(String string)
 		{
-			return matchers[2].reset(matchers[1].reset(matchers[0].reset(string).replaceAll(" ")).replaceAll("")).replaceAll(" ").trim();
+			return filterMatchers[2].reset(filterMatchers[1].reset(filterMatchers[0].reset(string).replaceAll(" ")).replaceAll("")).replaceAll(" ").trim();
 		}
 	}
 

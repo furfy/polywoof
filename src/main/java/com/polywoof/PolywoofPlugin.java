@@ -1,10 +1,7 @@
 package com.polywoof;
 
 import com.google.inject.Provides;
-import com.polywoof.api.API;
-import com.polywoof.api.DeepL;
-import com.polywoof.api.Generic;
-import com.polywoof.api.Google;
+import com.polywoof.api.*;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.*;
@@ -36,6 +33,7 @@ import javax.inject.Inject;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 
@@ -48,13 +46,13 @@ import java.util.List;
 				"translation"})
 public class PolywoofPlugin extends Plugin implements MouseListener
 {
+	private final HashMap<TranslationBackend, API> backendMap = new HashMap<>();
 	private final List<API.GameText> previousList = new ArrayList<>();
 	private final List<String> examineList = new ArrayList<>();
-	private API backend;
 	private Dictionary dictionary;
 	private Utils.TextVerifier verifierChatMessage;
 	private Utils.TextVerifier verifierOverheadText;
-	private Utils.TextVerifier verifierDialogText;
+	private Utils.TextVerifier verifierDialog;
 	private boolean getWidgetData;
 
 	@Inject private ChatMessageManager chatMessageManager;
@@ -80,15 +78,20 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 		overlay.setLayer(OverlayLayer.ABOVE_WIDGETS);
 		overlay.revalidate();
 		overlayManager.add(overlay);
+
 		dictionary = new Dictionary("polywoof");
 		verifierChatMessage = new Utils.TextVerifier(config.filterChatMessage());
 		verifierOverheadText = new Utils.TextVerifier(config.filterOverheadText());
-		verifierDialogText = new Utils.TextVerifier(config.filterDialogText());
+		verifierDialog = new Utils.TextVerifier(config.filterDialog());
 		getWidgetData = false;
 
-		changeBackend(config.backend());
+		dictionary.open();
+		backendMap.put(TranslationBackend.GENERIC, new Generic());
+		backendMap.put(TranslationBackend.DEEPL, new DeepL(okHttpClient));
+		backendMap.put(TranslationBackend.GOOGLE, new Google(okHttpClient));
+		backendMap.put(TranslationBackend.MYMEMORY, new MyMemory(okHttpClient));
 
-		if(backend instanceof Generic)
+		if(config.backend() == TranslationBackend.GENERIC)
 		{
 			ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.HIGHLIGHT)
 					.append("Generic")
@@ -100,6 +103,9 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 					.runeLiteFormattedMessage(builder.build())
 					.build());
 		}
+
+		updateKey(config.backend(), config.key());
+		updateKey(config.backendAlternative(), config.keyAlternative());
 
 		if(config.showUsage())
 		{
@@ -114,6 +120,7 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 		overlay.clear();
 		overlayManager.remove(overlay);
 		dictionary.close();
+		backendMap.clear();
 		previousList.clear();
 		examineList.clear();
 	}
@@ -140,7 +147,7 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 					int group = WidgetUtil.componentToInterface(widgetData.widget.getId());
 					int id = WidgetUtil.componentToId(widgetData.widget.getId());
 
-					if(backend instanceof Generic)
+					if(config.backend() == TranslationBackend.GENERIC)
 					{
 						ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.HIGHLIGHT)
 								.append(String.format("[%s %d.%d]", Text.titleCase(widgetData.type), group, id))
@@ -197,7 +204,10 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 							gameText = new API.GameText(widgetData.widget.getText(), API.GameText.Type.DIALOG);
 						}
 
-						backend.buffered(List.of(gameText), backend.languageFind(config.language()), () -> overlay.put(List.of(gameText)));
+						backendMap.get(config.backendAlternative()).fromMemory(
+								List.of(gameText),
+								backendMap.get(config.backendAlternative()).languageFind(config.language()),
+								() -> overlay.put(List.of(gameText)));
 					}
 				}
 			});
@@ -248,10 +258,25 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 			switch(configChanged.getKey())
 			{
 				case "backend":
-					changeBackend(config.backend());
+				case "key":
+					if(config.key().equals("pesik"))
+					{
+						API.GameText title = new API.GameText("Секретка..", true);
+						API.GameText message = new API.GameText("Ну тяф и что? Да-да, я пёсик!", API.GameText.Type.OVERHEAD);
+						message.text = message.game;
+						message.cache = true;
+
+						overlay.put(List.of(title, message));
+					}
+
+					updateKey(config.backend(), config.key());
 					break;
-				case "language":
-					if(backend.languageFind(config.language()) instanceof API.UnknownLanguage)
+				case "backendAlternative":
+				case "keyAlternative":
+					updateKey(config.backendAlternative(), config.keyAlternative());
+					break;
+				case "targetLanguage":
+					if(backendMap.get(config.backend()).languageFind(config.language()) instanceof API.UnknownLanguage)
 					{
 						ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.NORMAL)
 								.append("Current language is ")
@@ -266,28 +291,7 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 								.build());
 					}
 					break;
-				case "key":
-					if(config.key().equals("pesik"))
-					{
-						API.GameText title = new API.GameText("Секретка..", true);
-						API.GameText message = new API.GameText("Ну тяф и что? Да-да, я пёсик!", API.GameText.Type.OVERHEAD);
-						message.text = message.game;
-						message.cache = true;
-
-						overlay.put(List.of(title, message));
-					}
-
-					if(backend instanceof DeepL)
-					{
-						((DeepL)backend).update(config.key());
-					}
-
-					if(backend instanceof Google)
-					{
-						((Google)backend).update(config.key());
-					}
-					break;
-				case "showButton":
+				case "quickActions":
 					config.toggle(true);
 					break;
 				case "fontName":
@@ -306,7 +310,7 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 					verifierOverheadText.update(config.filterOverheadText());
 					break;
 				case "filterDialogText":
-					verifierDialogText.update(config.filterDialogText());
+					verifierDialog.update(config.filterDialog());
 					break;
 			}
 		}
@@ -350,7 +354,11 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 
 			if(verifierChatMessage.verify(textList))
 			{
-				backend.stored(textList, backend.languageFind(config.language()), dictionary, () -> overlay.put(textList));
+				backendMap.get(config.backend()).fromDictionary(
+						textList,
+						backendMap.get(config.backend()).languageFind(config.language()),
+						dictionary,
+						() -> overlay.put(textList));
 			}
 		}
 	}
@@ -360,102 +368,114 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 		if(config.toggle())
 		{
 			List<API.GameText> textList = new ArrayList<>();
-			Widget dialogPlayerName = client.getWidget(InterfaceID.DIALOG_PLAYER, 4);
-			Widget dialogPlayerText = client.getWidget(ComponentID.DIALOG_PLAYER_TEXT);
-			Widget dialogNpcName = client.getWidget(ComponentID.DIALOG_NPC_NAME);
-			Widget dialogNpcText = client.getWidget(ComponentID.DIALOG_NPC_TEXT);
-			Widget dialogSpriteText = client.getWidget(ComponentID.DIALOG_SPRITE_TEXT);
-			Widget dialogDoubleSprite = client.getWidget(ComponentID.DIALOG_DOUBLE_SPRITE_TEXT);
-			Widget dialogUnknown229 = client.getWidget(229, 1);
-			Widget dialogOptionOptions = client.getWidget(ComponentID.DIALOG_OPTION_OPTIONS);
-			Widget genericScrollText = client.getWidget(ComponentID.GENERIC_SCROLL_TEXT);
-			Widget clueScrollText = client.getWidget(ComponentID.CLUESCROLL_TEXT);
 
-			if(dialogPlayerName != null && dialogPlayerText != null)
+			if(config.translateDialog())
 			{
-				if(config.showTitle())
+				Widget dialogPlayerName = client.getWidget(InterfaceID.DIALOG_PLAYER, 4);
+				Widget dialogPlayerText = client.getWidget(ComponentID.DIALOG_PLAYER_TEXT);
+				Widget dialogNpcName = client.getWidget(ComponentID.DIALOG_NPC_NAME);
+				Widget dialogNpcText = client.getWidget(ComponentID.DIALOG_NPC_TEXT);
+				Widget dialogSpriteText = client.getWidget(ComponentID.DIALOG_SPRITE_TEXT);
+				Widget dialogDoubleSprite = client.getWidget(ComponentID.DIALOG_DOUBLE_SPRITE_TEXT);
+				Widget dialogUnknown229 = client.getWidget(229, 1);
+				Widget dialogOptionOptions = client.getWidget(ComponentID.DIALOG_OPTION_OPTIONS);
+
+				if(dialogPlayerName != null && dialogPlayerText != null)
 				{
-					textList.add(new API.GameText(dialogPlayerName.getText(), config.keepTitle()));
-				}
-
-				textList.add(new API.GameText(dialogPlayerText.getText(), API.GameText.Type.DIALOG));
-			}
-
-			if(dialogNpcName != null && dialogNpcText != null)
-			{
-				if(config.showTitle())
-				{
-					textList.add(new API.GameText(dialogNpcName.getText(), config.keepTitle()));
-				}
-
-				textList.add(new API.GameText(dialogNpcText.getText(), API.GameText.Type.DIALOG));
-			}
-
-			if(dialogSpriteText != null)
-			{
-				textList.add(new API.GameText(dialogSpriteText.getText(), API.GameText.Type.DIALOG));
-			}
-
-			if(dialogDoubleSprite != null)
-			{
-				textList.add(new API.GameText(dialogDoubleSprite.getText(), API.GameText.Type.DIALOG));
-			}
-
-			if(dialogUnknown229 != null)
-			{
-				textList.add(new API.GameText(dialogUnknown229.getText(), API.GameText.Type.DIALOG));
-			}
-
-			if(dialogOptionOptions != null)
-			{
-				for(Widget widget : dialogOptionOptions.getDynamicChildren())
-				{
-					if(widget.getType() == WidgetType.TEXT)
+					if(config.showTitle())
 					{
-						if(widget.hasListener())
-						{
-							textList.add(new API.GameText(widget.getText(), API.GameText.Type.OPTION));
-						}
-						else if(config.showTitle())
-						{
-							textList.add(new API.GameText(widget.getText(), config.keepTitle()));
-						}
+						textList.add(new API.GameText(dialogPlayerName.getText(), config.keepTitle()));
 					}
+
+					textList.add(new API.GameText(dialogPlayerText.getText(), API.GameText.Type.DIALOG));
 				}
-			}
 
-			if(config.translateScroll() && genericScrollText != null)
-			{
-				StringBuilder builder = new StringBuilder(API.GameText.Type.SCROLL.size);
-
-				for(Widget widget : genericScrollText.getNestedChildren())
+				if(dialogNpcName != null && dialogNpcText != null)
 				{
-					if(widget.getType() == WidgetType.TEXT)
+					if(config.showTitle())
 					{
-						if(widget.getText().isBlank() && builder.length() > 0)
+						textList.add(new API.GameText(dialogNpcName.getText(), config.keepTitle()));
+					}
+
+					textList.add(new API.GameText(dialogNpcText.getText(), API.GameText.Type.DIALOG));
+				}
+
+				if(dialogSpriteText != null)
+				{
+					textList.add(new API.GameText(dialogSpriteText.getText(), API.GameText.Type.DIALOG));
+				}
+
+				if(dialogDoubleSprite != null)
+				{
+					textList.add(new API.GameText(dialogDoubleSprite.getText(), API.GameText.Type.DIALOG));
+				}
+
+				if(dialogUnknown229 != null)
+				{
+					textList.add(new API.GameText(dialogUnknown229.getText(), API.GameText.Type.DIALOG));
+				}
+
+				if(dialogOptionOptions != null)
+				{
+					for(Widget widget : dialogOptionOptions.getDynamicChildren())
+					{
+						if(widget.getType() == WidgetType.TEXT)
 						{
-							textList.add(new API.GameText(builder.toString(), API.GameText.Type.SCROLL));
-							builder = new StringBuilder(API.GameText.Type.SCROLL.size);
-						}
-						else
-						{
-							if(builder.length() > 0)
+							if(widget.hasListener())
 							{
-								builder.append(' ');
+								textList.add(new API.GameText(widget.getText(), API.GameText.Type.OPTION));
 							}
-
-							builder.append(widget.getText());
+							else if(config.showTitle())
+							{
+								textList.add(new API.GameText(widget.getText(), config.keepTitle()));
+							}
 						}
 					}
 				}
 			}
 
-			if(config.translateTreasureClue() && clueScrollText != null)
+			if(config.translateScroll())
 			{
-				textList.add(new API.GameText(clueScrollText.getText(), API.GameText.Type.SCROLL));
+				Widget genericScrollText = client.getWidget(ComponentID.GENERIC_SCROLL_TEXT);
+
+				if(genericScrollText != null)
+				{
+					StringBuilder builder = new StringBuilder(API.GameText.Type.SCROLL.size);
+
+					for(Widget widget : genericScrollText.getNestedChildren())
+					{
+						if(widget.getType() == WidgetType.TEXT)
+						{
+							if(widget.getText().isBlank() && builder.length() > 0)
+							{
+								textList.add(new API.GameText(builder.toString(), API.GameText.Type.SCROLL));
+								builder = new StringBuilder(API.GameText.Type.SCROLL.size);
+							}
+							else
+							{
+								if(builder.length() > 0)
+								{
+									builder.append(' ');
+								}
+
+								builder.append(widget.getText());
+							}
+						}
+					}
+				}
 			}
 
-			if(verifierDialogText.verify(textList))
+			if(config.translateTreasureClue())
+			{
+				Widget clueScrollText = client.getWidget(ComponentID.CLUESCROLL_TEXT);
+
+				if(clueScrollText != null)
+				{
+					textList.add(new API.GameText(clueScrollText.getText(), API.GameText.Type.SCROLL));
+				}
+			}
+
+			if(verifierDialog.verify(textList))
 			{
 				if(textList.size() == previousList.size())
 				{
@@ -478,7 +498,11 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 				previousList.clear();
 				previousList.addAll(textList);
 				overlay.pop("default");
-				backend.stored(textList, backend.languageFind(config.language()), dictionary, () -> overlay.set("default", textList));
+				backendMap.get(config.backend()).fromDictionary(
+						textList,
+						backendMap.get(config.backend()).languageFind(config.language()),
+						dictionary,
+						() -> overlay.set("default", textList));
 			}
 			else if(!previousList.isEmpty())
 			{
@@ -495,11 +519,11 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 
 	@Subscribe public void onMenuOpened(MenuOpened menuOpened)
 	{
-		if(config.showButton() && overlay.isMouseOver())
+		if(config.quickActions() && overlay.isMouseOver())
 		{
 			client.createMenuEntry(1)
-					.setOption(backend instanceof Generic ? "Get" : "Select")
-					.setTarget(ColorUtil.wrapWithColorTag(backend instanceof Generic ? "Widget ID" : "Text", JagexColors.MENU_TARGET))
+					.setOption(config.backend() == TranslationBackend.GENERIC ? "Get" : "Select")
+					.setTarget(ColorUtil.wrapWithColorTag(config.backend() == TranslationBackend.GENERIC ? "Widget ID" : "Text", JagexColors.MENU_TARGET))
 					.setType(MenuAction.RUNELITE)
 					.onClick(menuEntry -> getWidgetData = true);
 
@@ -580,38 +604,39 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 
 			if(verifierOverheadText.verify(textList))
 			{
-				backend.stored(textList, backend.languageFind(config.language()), dictionary, () -> overlay.put(textList));
+				backendMap.get(config.backend()).fromDictionary(
+						textList,
+						backendMap.get(config.backend()).languageFind(config.language()),
+						dictionary,
+						() -> overlay.put(textList));
 			}
 		}
 	}
 
-	private void changeBackend(TranslationBackend backend)
+	private void updateKey(TranslationBackend backend, String key)
 	{
-		log.info("Trying to set the {} backend", Text.titleCase(backend));
 		switch(backend)
 		{
-			case GENERIC:
-				this.backend = new Generic();
-				dictionary.close();
-				break;
 			case DEEPL:
-				this.backend = new DeepL(okHttpClient, config.key());
-				dictionary.open();
+				((DeepL)backendMap.get(backend)).update(key);
 				break;
 			case GOOGLE:
-				this.backend = new Google(okHttpClient, config.key());
-				dictionary.open();
+				((Google)backendMap.get(backend)).update(key);
+				break;
+			case MYMEMORY:
+				((MyMemory)backendMap.get(backend)).update(key);
+				break;
 		}
 	}
 
 	private void verifyUsage()
 	{
-		if(backend instanceof DeepL)
+		if(config.backend() == TranslationBackend.DEEPL)
 		{
-			((DeepL)backend).usage((characterCount, characterLimit) ->
+			((DeepL)backendMap.get(TranslationBackend.DEEPL)).usage((characterCount, characterLimit) ->
 			{
 				ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.NORMAL)
-						.append("Your current API usage is ")
+						.append("Your current DeepL usage is ")
 						.append(ChatColorType.HIGHLIGHT)
 						.append(Math.round(100f * ((float)characterCount / characterLimit)) + "%")
 						.append(ChatColorType.NORMAL)
@@ -643,6 +668,7 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 	{
 		GENERIC,
 		DEEPL,
-		GOOGLE
+		GOOGLE,
+		MYMEMORY
 	}
 }

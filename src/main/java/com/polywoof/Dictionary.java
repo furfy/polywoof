@@ -102,7 +102,7 @@ import java.util.concurrent.Executors;
 				}
 				catch(SQLException error)
 				{
-					log.error("Failed to open storage", error);
+					log.error("Failed to open the database", error);
 				}
 			});
 		}
@@ -143,7 +143,7 @@ import java.util.concurrent.Executors;
 
 	public void select(List<API.GameText> textList, API.Language language, Queryable queryable)
 	{
-		if(status() && !textList.isEmpty())
+		if(status())
 		{
 			executor.execute(() ->
 			{
@@ -157,20 +157,20 @@ import java.util.concurrent.Executors;
 						{
 							preparedStatement.setString(1, "DICTIONARY");
 							preparedStatement.setString(2, gameText.type.toString());
-							preparedStatement.setString(3, language.code);
+							preparedStatement.setString(3, language.code.toUpperCase());
 
 							if(preparedStatement.executeQuery().next())
 							{
 								log.debug("Trying to select {} from the database", language.name);
 								try(PreparedStatement statement = db.prepareStatement(String.format("select `%2$s` from" +
-										"\nDICTIONARY.%1$s where GAME = ? and `%2$s` is not null", gameText.type, language.code)))
+										"\nDICTIONARY.%1$s where GAME = ? and `%2$s` is not null", gameText.type, language.code.toUpperCase())))
 								{
 									statement.setString(1, gameText.game);
 									ResultSet resultSet = statement.executeQuery();
 
 									if(resultSet.next())
 									{
-										gameText.text = resultSet.getString(language.code);
+										gameText.text = resultSet.getString(language.code.toUpperCase());
 										gameText.cache = true;
 									}
 								}
@@ -190,7 +190,7 @@ import java.util.concurrent.Executors;
 
 	public void insert(List<API.GameText> textList, API.Language language, Queryable queryable)
 	{
-		if(status() && !textList.isEmpty())
+		if(status())
 		{
 			executor.execute(() ->
 			{
@@ -202,14 +202,14 @@ import java.util.concurrent.Executors;
 						{
 							log.debug("Trying to create {} in the database", gameText.type);
 							try(PreparedStatement statement = db.prepareStatement(String.format("alter table" +
-									"\nDICTIONARY.%1$s add if not exists `%3$s` varchar(%2$s)", gameText.type, gameText.type.size, language.code)))
+									"\nDICTIONARY.%1$s add if not exists `%3$s` varchar(%2$s)", gameText.type, gameText.type.size, language.code.toUpperCase())))
 							{
 								statement.executeUpdate();
 							}
 
 							log.debug("Trying to insert {} into the database", language.name);
 							try(PreparedStatement statement = db.prepareStatement(String.format("merge into" +
-									"\nDICTIONARY.%1$s (GAME, `%2$s`) values(?, ?)", gameText.type, language.code)))
+									"\nDICTIONARY.%1$s (GAME, `%2$s`) values(?, ?)", gameText.type, language.code.toUpperCase())))
 							{
 								statement.setString(1, gameText.game);
 								statement.setString(2, gameText.text);

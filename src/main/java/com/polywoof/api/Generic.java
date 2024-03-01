@@ -8,14 +8,18 @@ import java.util.List;
 
 @Slf4j @ParametersAreNonnullByDefault public final class Generic extends API
 {
-	@Override public void fetch(List<GameText> textList, Language language, Translatable translatable)
+	@Override public void fetch(List<GameText> textList, Language language, boolean detectSource, Translatable translatable)
 	{
-		for(GameText gameText : textList)
+		if(language instanceof ResourceLanguage)
 		{
-			gameText.text = Utils.Text.filter(gameText.game);
-		}
+			for(GameText gameText : textList)
+			{
+				gameText.text = Utils.Text.filter(gameText.game);
+				gameText.cache = true;
+			}
 
-		translatable.translate();
+			translatable.translate();
+		}
 	}
 
 	@Override public void languageList(Supportable supportable)

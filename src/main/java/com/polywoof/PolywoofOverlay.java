@@ -34,7 +34,7 @@ import java.util.*;
 
 	@Override public Dimension render(Graphics2D graphics)
 	{
-		if(config.showButton() && !mouseOver)
+		if(config.quickActions() && !mouseOver)
 		{
 			graphics.setComposite(composite = composite.derive(0.2f));
 			graphics.drawImage(resourceIcon, 0, 0, iconSize.width, iconSize.height, null);
@@ -128,7 +128,7 @@ import java.util.*;
 			}
 		}
 
-		if(config.showButton() && mouseOver)
+		if(config.quickActions() && mouseOver)
 		{
 			mouseOver = false;
 			graphics.setComposite(composite = composite.derive(1f));
@@ -140,7 +140,7 @@ import java.util.*;
 
 	@Override public void onMouseOver()
 	{
-		if(config.showButton() && !client.isMenuOpen())
+		if(config.quickActions() && !client.isMenuOpen())
 		{
 			API.Status status;
 
@@ -197,7 +197,7 @@ import java.util.*;
 
 	public final void put(List<API.GameText> textList)
 	{
-		if(textBoxList.size() >= 9)
+		while(textBoxList.size() > 9)
 		{
 			textBoxList.remove(textBoxList.size() - 1);
 		}
@@ -211,7 +211,7 @@ import java.util.*;
 	{
 		if(textBoxMap.containsKey(key))
 		{
-			if(textBoxList.size() >= 9)
+			while(textBoxList.size() > 9)
 			{
 				textBoxList.remove(textBoxList.size() - 1);
 			}

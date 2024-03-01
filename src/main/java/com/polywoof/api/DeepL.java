@@ -24,63 +24,63 @@ import java.util.stream.Collectors;
 	private String key;
 	private String endpoint;
 
-	public DeepL(OkHttpClient client, String key)
+	public DeepL(OkHttpClient client)
 	{
 		this.client = client;
-		update(key);
 	}
 
-	@Override public void fetch(List<GameText> textList, Language language, Translatable translatable)
+	@Override public void fetch(List<GameText> textList, Language language, boolean detectSource, Translatable translatable)
 	{
 		if(language instanceof TrustedLanguage)
 		{
-			synchronized(textList)
+			List<GameText> bodyText = textList.stream().filter(gameText -> !gameText.cache).collect(Collectors.toList());
+
+			if(bodyText.isEmpty())
 			{
-				List<GameText> bodyText = textList.stream().filter(gameText -> !gameText.cache).collect(Collectors.toList());
+				translatable.translate();
+			}
+			else
+			{
+				JsonArray jsonArray = new JsonArray();
 
-				if(bodyText.isEmpty())
+				for(GameText gameText : bodyText)
 				{
-					translatable.translate();
+					jsonArray.add(Utils.Text.filter(gameText.game));
 				}
-				else
+
+				JsonObject jsonObject = new JsonObject();
+				jsonObject.add("text", jsonArray);
+				jsonObject.addProperty("target_lang", language.code);
+				jsonObject.addProperty("context", "runescape; dungeons and dragons; medieval fantasy;");
+				jsonObject.addProperty("preserve_formatting", true);
+				jsonObject.addProperty("formality", "prefer_less");
+				jsonObject.addProperty("tag_handling", "html");
+				jsonObject.addProperty("non_splitting_tags", "br");
+
+				if(!detectSource)
 				{
-					JsonArray jsonArray = new JsonArray();
+					jsonObject.addProperty("source_lang", "EN");
+				}
 
-					for(GameText gameText : bodyText)
+				fetch("/v2/translate", FormBody.create(mediaType, jsonObject.toString()), body ->
+				{
+					JsonArray json = parser.parse(body).getAsJsonObject().getAsJsonArray("translations");
+
+					if(bodyText.size() == json.size())
 					{
-						jsonArray.add(Utils.Text.filter(gameText.game));
-					}
+						Iterator<JsonElement> iterator = json.iterator();
 
-					JsonObject jsonObject = new JsonObject();
-					jsonObject.add("text", jsonArray);
-					jsonObject.addProperty("target_lang", language.code);
-					jsonObject.addProperty("context", "runescape; dungeons and dragons; medieval fantasy;");
-					jsonObject.addProperty("source_lang", "en");
-					jsonObject.addProperty("preserve_formatting", true);
-					jsonObject.addProperty("formality", "prefer_less");
-					jsonObject.addProperty("tag_handling", "html");
-					jsonObject.addProperty("non_splitting_tags", "br");
-
-					fetch("/v2/translate", FormBody.create(mediaType, jsonObject.toString()), body ->
-					{
-						JsonArray json = parser.parse(body).getAsJsonObject().getAsJsonArray("translations");
-
-						if(bodyText.size() == json.size())
+						for(GameText gameText : textList)
 						{
-							Iterator<JsonElement> iterator = json.iterator();
-
-							for(GameText gameText : textList)
+							if(!gameText.cache)
 							{
-								if(!gameText.cache)
-								{
-									gameText.text = StringEscapeUtils.unescapeHtml4(iterator.next().getAsJsonObject().get("text").getAsString());
-								}
+								gameText.text = StringEscapeUtils.unescapeHtml4(iterator.next().getAsJsonObject().get("text").getAsString());
 							}
 						}
+					}
 
-						translatable.translate();
-					});
-				}
+					translatable.translate();
+				});
 			}
 		}
 	}
@@ -122,7 +122,8 @@ import java.util.stream.Collectors;
 			try
 			{
 				log.debug("Trying to create the {} request", path);
-				Request request = new Request.Builder().addHeader("User-Agent", RuneLite.USER_AGENT + " (polywoof)")
+				Request request = new Request.Builder()
+						.addHeader("User-Agent", RuneLite.USER_AGENT + " (polywoof)")
 						.addHeader("Authorization", "DeepL-Auth-Key " + key)
 						.addHeader("Accept", "application/json")
 						.addHeader("Content-Type", "application/json")
@@ -135,7 +136,7 @@ import java.util.stream.Collectors;
 				{
 					@Override public void onFailure(Call call, IOException error)
 					{
-						log.error("Failed to receive the API response", error);
+						lastError = error;
 					}
 
 					@Override public void onResponse(Call call, Response response)
@@ -175,9 +176,12 @@ import java.util.stream.Collectors;
 
 	public void update(String key)
 	{
-		this.key = key;
-		endpoint = key.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
-		languageList(languageList -> languageList.forEach(language -> log.debug("{} - {}", language.code, language.name)));
+		if(!key.equals(this.key))
+		{
+			this.key = key;
+			endpoint = key.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
+			languageList(languageList -> log.info("DeepL {} languages loaded", languageList.size()));
+		}
 	}
 
 	private static void handleCode(int code) throws Exception
@@ -194,8 +198,6 @@ import java.util.stream.Collectors;
 				throw new Exception("Too many requests");
 			case 456:
 				throw new Exception("Quota exceeded");
-			case 501:
-				throw new Exception("Not implemented");
 			case 503:
 				throw new Exception("Service unavailable");
 			default:
@@ -207,7 +209,7 @@ import java.util.stream.Collectors;
 	{
 		private TrustedLanguage(JsonObject object)
 		{
-			super(object.get("language").getAsString().toUpperCase(), object.get("name").getAsString());
+			super(object.get("language").getAsString(), object.get("name").getAsString());
 		}
 	}
 

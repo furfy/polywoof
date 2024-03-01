@@ -358,6 +358,7 @@ import java.util.List;
 			case CENTER:
 			case RIGHT:
 				y += PolywoofOverlay.iconSize.height / 2;
+				break;
 		}
 
 		rectangle.setLocation(x, y);

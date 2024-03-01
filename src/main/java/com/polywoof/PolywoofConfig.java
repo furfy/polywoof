@@ -25,13 +25,13 @@ import java.awt.*;
 
 	@ConfigSection(
 			name = "General",
-			description = "Settings for Overall Experience",
+			description = "Settings for overall Experience",
 			position = 0)
 	String generalSection = "generalSection";
 
 	@ConfigItem(
 			keyName = "backend",
-			name = "Service",
+			name = "Translation Service",
 			description = "Choose the Backend for translation",
 			section = generalSection,
 			position = 0)
@@ -41,24 +41,58 @@ import java.awt.*;
 	}
 
 	@ConfigItem(
-			keyName = "language",
-			name = "Language",
-			description = "Type your desired Language",
+			keyName = "key",
+			name = "API Key",
+			description = "See the Guide how to get the API Key",
+			secret = true,
 			section = generalSection,
 			position = 1)
+	default String key()
+	{
+		return "";
+	}
+
+	@ConfigItem(
+			keyName = "targetLanguage",
+			name = "Target Language",
+			description = "Type your desired Language",
+			section = generalSection,
+			position = 2)
 	default String language()
 	{
 		return "ru";
 	}
 
 	@ConfigItem(
-			keyName = "key",
+			keyName = "quickActions",
+			name = "Quick Actions",
+			description = "Translucent Quick Actions icon near Text Boxes",
+			section = generalSection,
+			position = 3)
+	default boolean quickActions()
+	{
+		return true;
+	}
+
+	@ConfigItem(
+			keyName = "backendAlternative",
+			name = "Alternative Service",
+			description = "Select the Backend for the Quick Actions",
+			section = generalSection,
+			position = 4)
+	default PolywoofPlugin.TranslationBackend backendAlternative()
+	{
+		return PolywoofPlugin.TranslationBackend.DEEPL;
+	}
+
+	@ConfigItem(
+			keyName = "keyAlternative",
 			name = "API Key",
-			description = "See the Guide how to get the Key",
+			description = "Same as the previous API Key, but for the Alternative Backend",
 			secret = true,
 			section = generalSection,
-			position = 2)
-	default String key()
+			position = 5)
+	default String keyAlternative()
 	{
 		return "";
 	}
@@ -66,9 +100,9 @@ import java.awt.*;
 	@Range(min = 1, max = 99) @ConfigItem(
 			keyName = "readingSpeed",
 			name = "Reading Skill",
-			description = "Your Reading Skill level",
+			description = "Affects how quickly temporary Text Boxes disappear",
 			section = generalSection,
-			position = 3)
+			position = 6)
 	default int readingSpeed()
 	{
 		return 10;
@@ -77,32 +111,10 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "showUsage",
 			name = "Show API Usage",
-			description = "Show your Monthly Usage when you logon",
+			description = "Shows your API Usage when you logon",
 			section = generalSection,
-			position = 4)
+			position = 7)
 	default boolean showUsage()
-	{
-		return true;
-	}
-
-	@ConfigItem(
-			keyName = "showTitle",
-			name = "Show Titles",
-			description = "Context Titles where text comes from",
-			section = generalSection,
-			position = 5)
-	default boolean showTitle()
-	{
-		return true;
-	}
-
-	@ConfigItem(
-			keyName = "showButton",
-			name = "Quick Actions",
-			description = "Translucent Button near Text Boxes for Quick Actions",
-			section = generalSection,
-			position = 6)
-	default boolean showButton()
 	{
 		return true;
 	}
@@ -116,7 +128,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "keepTitle",
 			name = "Keep Titles",
-			description = "Don't translate Context Titles",
+			description = "Context Titles will not be translated",
 			section = translationSection,
 			position = 0)
 	default boolean keepTitle()
@@ -158,11 +170,22 @@ import java.awt.*;
 	}
 
 	@ConfigItem(
+			keyName = "translateDialog",
+			name = "Dialogs",
+			description = "Translation for Dialogs and Options",
+			section = translationSection,
+			position = 4)
+	default boolean translateDialog()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 			keyName = "translateScroll",
 			name = "Scrolls",
 			description = "Translation for Scrolls",
 			section = translationSection,
-			position = 4)
+			position = 5)
 	default boolean translateScroll()
 	{
 		return false;
@@ -173,23 +196,24 @@ import java.awt.*;
 			name = "Treasure Clues",
 			description = "Translation for Treasure Clues",
 			section = translationSection,
-			position = 5)
+			position = 6)
 	default boolean translateTreasureClue()
 	{
 		return false;
 	}
 
 	@ConfigSection(
-			name = "Visual",
-			description = "Font and Visual tweaks",
+			name = "Appearance",
+			description = "Font and Visual Tweaks",
+			closedByDefault = true,
 			position = 2)
-	String visualSection = "visualSection";
+	String appearanceSection = "visualSection";
 
 	@ConfigItem(
 			keyName = "fontName",
 			name = "Font Name",
 			description = "Choose your favorite Font",
-			section = visualSection,
+			section = appearanceSection,
 			position = 0)
 	default String fontName()
 	{
@@ -200,7 +224,7 @@ import java.awt.*;
 			keyName = "fontSize",
 			name = "Font Size",
 			description = "Adjust the Font Size for more comfort",
-			section = visualSection,
+			section = appearanceSection,
 			position = 1)
 	default int fontSize()
 	{
@@ -211,7 +235,7 @@ import java.awt.*;
 			keyName = "textShadow",
 			name = "Text Shadow",
 			description = "Text Shadow for better visibility",
-			section = visualSection,
+			section = appearanceSection,
 			position = 2)
 	default boolean textShadow()
 	{
@@ -222,7 +246,7 @@ import java.awt.*;
 			keyName = "overlayBackgroundColor",
 			name = "Background Color",
 			description = "Color of Text Boxes background",
-			section = visualSection,
+			section = appearanceSection,
 			position = 3)
 	default Color overlayBackgroundColor()
 	{
@@ -233,16 +257,27 @@ import java.awt.*;
 			keyName = "overlayOutline",
 			name = "Show Outline",
 			description = "Outline around Text Boxes",
-			section = visualSection,
+			section = appearanceSection,
 			position = 4)
 	default boolean overlayOutline()
 	{
 		return true;
 	}
 
+	@ConfigItem(
+			keyName = "showTitle",
+			name = "Show Titles",
+			description = "Context Titles where text comes from",
+			section = appearanceSection,
+			position = 5)
+	default boolean showTitle()
+	{
+		return true;
+	}
+
 	@ConfigSection(
 			name = "Formatting",
-			description = "Text formatting inside of Text Boxes",
+			description = "Text Formatting inside of Text Boxes",
 			closedByDefault = true,
 			position = 3)
 	String formattingSection = "formattingSection";
@@ -283,7 +318,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "filterChatMessage",
 			name = "Chat Messages Filter",
-			description = "Which Chat Messages should not be translated",
+			description = "Filter for Chat Messages",
 			section = formattingSection,
 			position = 3)
 	default String filterChatMessage()
@@ -301,7 +336,7 @@ import java.awt.*;
 	@ConfigItem(
 			keyName = "filterOverheadText",
 			name = "Overhead Text Filter",
-			description = "Which Overhead Text should be ignored",
+			description = "Filter for Overhead Text",
 			section = formattingSection,
 			position = 4)
 	default String filterOverheadText()
@@ -310,12 +345,12 @@ import java.awt.*;
 	}
 
 	@ConfigItem(
-			keyName = "filterDialogText",
+			keyName = "filterDialog",
 			name = "Dialog Text Filter",
-			description = "Which Dialog Text should be skipped",
+			description = "Filter for Dialogs and Options",
 			section = formattingSection,
 			position = 5)
-	default String filterDialogText()
+	default String filterDialog()
 	{
 		return "^Congratulations, you've just advanced your .+ level\\." +
 				"\n^Exchange '.+': 5 coins" +

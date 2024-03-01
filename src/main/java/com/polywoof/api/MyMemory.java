@@ -1,7 +1,5 @@
 package com.polywoof.api;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.polywoof.Utils;
 import lombok.extern.slf4j.Slf4j;
@@ -12,20 +10,29 @@ import org.apache.commons.text.StringEscapeUtils;
 import javax.annotation.ParametersAreNonnullByDefault;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
-@Slf4j @ParametersAreNonnullByDefault public final class Google extends API
+@Slf4j @ParametersAreNonnullByDefault public final class MyMemory extends API
 {
 	private static final List<Language> trustedLanguageList = new ArrayList<>();
-	private static final MediaType mediaType = MediaType.parse("Content-Type: application/json");
 	private final OkHttpClient client;
 	private String key;
 
-	public Google(OkHttpClient client)
+	public MyMemory(OkHttpClient client)
 	{
 		this.client = client;
+
+		synchronized(trustedLanguageList)
+		{
+			trustedLanguageList.clear();
+
+			for(Language language : resourceLanguageList)
+			{
+				trustedLanguageList.add(new TrustedLanguage(language));
+			}
+		}
 	}
 
 	@Override public void fetch(List<GameText> textList, Language language, boolean detectSource, Translatable translatable)
@@ -40,66 +47,49 @@ import java.util.stream.Collectors;
 			}
 			else
 			{
-				JsonArray jsonArray = new JsonArray();
+				AtomicInteger size = new AtomicInteger();
 
 				for(GameText gameText : bodyText)
 				{
-					jsonArray.add(Utils.Text.filter(gameText.game));
-				}
+					FormBody.Builder builder = new FormBody.Builder()
+							.add("q", Utils.Text.filter(gameText.game))
+							.add("langpair", String.format("%s|%s", detectSource ? "Autodetect" : "en-GB", language.code));
 
-				JsonObject jsonObject = new JsonObject();
-				jsonObject.add("q", jsonArray);
-				jsonObject.addProperty("target", language.code);
-				jsonObject.addProperty("format", "html");
-
-				if(!detectSource)
-				{
-					jsonObject.addProperty("source", "en-GB");
-				}
-
-				fetch("/language/translate/v2", FormBody.create(mediaType, jsonObject.toString()), body ->
-				{
-					JsonArray json = parser.parse(body).getAsJsonObject().getAsJsonObject("data").getAsJsonArray("translations");
-
-					if(bodyText.size() == json.size())
+					if(!key.equals("demo"))
 					{
-						Iterator<JsonElement> iterator = json.iterator();
-
-						for(GameText gameText : textList)
-						{
-							if(!gameText.cache)
-							{
-								gameText.text = StringEscapeUtils.unescapeHtml4(iterator.next().getAsJsonObject().get("translatedText").getAsString());
-							}
-						}
+						builder.add("de", key);
 					}
 
-					translatable.translate();
-				});
+					fetch(builder.build(), body ->
+					{
+						try
+						{
+							JsonObject json = parser.parse(body).getAsJsonObject();
+
+							handleCode(json.get("responseStatus").getAsInt());
+							gameText.text = StringEscapeUtils.unescapeHtml4(json.getAsJsonObject("responseData").get("translatedText").getAsString());
+
+							if(bodyText.size() == size.incrementAndGet())
+							{
+								translatable.translate();
+							}
+						}
+						catch(Exception error)
+						{
+							lastError = error;
+						}
+					});
+				}
 			}
 		}
 	}
 
 	@Override public void languageList(Supportable supportable)
 	{
-		JsonObject jsonObject = new JsonObject();
-		jsonObject.addProperty("target", "en");
-
-		fetch("/language/translate/v2/languages", FormBody.create(mediaType, jsonObject.toString()), body ->
+		synchronized(trustedLanguageList)
 		{
-			synchronized(trustedLanguageList)
-			{
-				JsonArray json = parser.parse(body).getAsJsonObject().getAsJsonObject("data").getAsJsonArray("languages");
-				trustedLanguageList.clear();
-
-				for(JsonElement element : json)
-				{
-					trustedLanguageList.add(new TrustedLanguage(element.getAsJsonObject()));
-				}
-
-				supportable.list(trustedLanguageList);
-			}
-		});
+			supportable.list(trustedLanguageList);
+		}
 	}
 
 	@Override public Language languageFind(String language)
@@ -110,20 +100,19 @@ import java.util.stream.Collectors;
 		}
 	}
 
-	private void fetch(String path, RequestBody requestBody, Receivable receivable)
+	private void fetch(RequestBody requestBody, Receivable receivable)
 	{
 		if(!key.isBlank())
 		{
 			try
 			{
-				log.debug("Trying to create the {} request", path);
+				log.debug("Trying to create the {} request", "/get");
 				Request request = new Request.Builder()
 						.addHeader("User-Agent", RuneLite.USER_AGENT + " (polywoof)")
-						.addHeader("X-goog-api-key", key)
 						.addHeader("Accept", "application/json")
-						.addHeader("Content-Type", "application/json")
+						.addHeader("Content-Type", "application/x-www-form-urlencoded")
 						.addHeader("Content-Length", String.valueOf(requestBody.contentLength()))
-						.url("https://translation.googleapis.com" + path)
+						.url("https://api.mymemory.translated.net/get")
 						.post(requestBody)
 						.build();
 
@@ -164,8 +153,12 @@ import java.util.stream.Collectors;
 	{
 		if(!key.equals(this.key))
 		{
+			if(!key.isBlank() && !key.matches("^[^@]+@[^@.]+\\.[^@.]+$"))
+			{
+				key = "demo";
+			}
+
 			this.key = key;
-			languageList(languageList -> log.info("Google {} languages loaded", languageList.size()));
 		}
 	}
 
@@ -176,13 +169,13 @@ import java.util.stream.Collectors;
 			case 200:
 				return;
 			case 400:
-				throw new Exception("Invalid argument");
-			case 401:
-				throw new Exception("Unauthenticated");
+				throw new Exception("Bad request");
+			case 403:
+				throw new Exception("Forbidden");
 			case 429:
-				throw new Exception("Resource exhausted");
+				throw new Exception("Too many requests");
 			case 503:
-				throw new Exception("Unavailable");
+				throw new Exception("Service unavailable");
 			default:
 				throw new Exception(String.valueOf(code));
 		}
@@ -190,9 +183,9 @@ import java.util.stream.Collectors;
 
 	public static final class TrustedLanguage extends Language
 	{
-		private TrustedLanguage(JsonObject object)
+		TrustedLanguage(Language language)
 		{
-			super(object.get("language").getAsString(), object.get("name").getAsString());
+			super(language.code, language.name);
 		}
 	}
 
