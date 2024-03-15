@@ -51,16 +51,16 @@ import java.util.stream.Collectors;
 
 				for(GameText gameText : bodyText)
 				{
-					FormBody.Builder builder = new FormBody.Builder()
+					FormBody.Builder request = new FormBody.Builder()
 							.add("q", Utils.Text.filter(gameText.game))
 							.add("langpair", String.format("%s|%s", detectSource ? "Autodetect" : "en-GB", language.code));
 
 					if(!key.equals("demo"))
 					{
-						builder.add("de", key);
+						request.add("de", key);
 					}
 
-					fetch(builder.build(), body ->
+					fetch(request.build(), body ->
 					{
 						try
 						{
@@ -107,16 +107,15 @@ import java.util.stream.Collectors;
 			try
 			{
 				log.debug("Trying to create the {} request", "/get");
-				Request request = new Request.Builder()
+				Request.Builder request = new Request.Builder()
 						.addHeader("User-Agent", RuneLite.USER_AGENT + " (polywoof)")
 						.addHeader("Accept", "application/json")
 						.addHeader("Content-Type", "application/x-www-form-urlencoded")
 						.addHeader("Content-Length", String.valueOf(requestBody.contentLength()))
 						.url("https://api.mymemory.translated.net/get")
-						.post(requestBody)
-						.build();
+						.post(requestBody);
 
-				client.newCall(request).enqueue(new Callback()
+				client.newCall(request.build()).enqueue(new Callback()
 				{
 					@Override public void onFailure(Call call, IOException error)
 					{

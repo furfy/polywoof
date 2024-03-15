@@ -93,14 +93,14 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 
 		if(config.backend() == TranslationBackend.GENERIC)
 		{
-			ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.HIGHLIGHT)
+			ChatMessageBuilder message = new ChatMessageBuilder().append(ChatColorType.HIGHLIGHT)
 					.append("Generic")
 					.append(ChatColorType.NORMAL)
 					.append(" backend is set, intended for testing.");
 
 			chatMessageManager.queue(QueuedMessage.builder()
 					.type(ChatMessageType.CONSOLE)
-					.runeLiteFormattedMessage(builder.build())
+					.runeLiteFormattedMessage(message.build())
 					.build());
 		}
 
@@ -149,18 +149,18 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 
 					if(config.backend() == TranslationBackend.GENERIC)
 					{
-						ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.HIGHLIGHT)
+						ChatMessageBuilder message = new ChatMessageBuilder().append(ChatColorType.HIGHLIGHT)
 								.append(String.format("[%s %d.%d]", Text.titleCase(widgetData.type), group, id))
 								.append(ChatColorType.NORMAL);
 
 						if(!widgetData.widget.getText().isBlank())
 						{
-							builder.append(String.format(" «%s»", widgetData.widget.getText()));
+							message.append(String.format(" «%s»", widgetData.widget.getText()));
 						}
 
 						chatMessageManager.queue(QueuedMessage.builder()
 								.type(ChatMessageType.CONSOLE)
-								.runeLiteFormattedMessage(builder.build())
+								.runeLiteFormattedMessage(message.build())
 								.build());
 					}
 					else if(!widgetData.widget.getText().isBlank())
@@ -169,7 +169,7 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 
 						if(!widgetData.widget.hasListener() && widgetData.type != Utils.Interface.Type.DYNAMIC)
 						{
-							StringBuilder builder = new StringBuilder(API.GameText.Type.SCROLL.size);
+							StringBuilder text = new StringBuilder(API.GameText.Type.SCROLL.size);
 
 							for(int i = 1;; i++)
 							{
@@ -180,10 +180,10 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 									break;
 								}
 
-								builder.insert(0, ' ').insert(0, widget.getText());
+								text.insert(0, ' ').insert(0, widget.getText());
 							}
 
-							builder.append(widgetData.widget.getText());
+							text.append(widgetData.widget.getText());
 
 							for(int i = 1;; i++)
 							{
@@ -194,10 +194,10 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 									break;
 								}
 
-								builder.append(' ').append(widget.getText());
+								text.append(' ').append(widget.getText());
 							}
 
-							gameText = new API.GameText(builder.toString(), API.GameText.Type.SCROLL);
+							gameText = new API.GameText(text.toString(), API.GameText.Type.SCROLL);
 						}
 						else
 						{
@@ -278,7 +278,7 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 				case "targetLanguage":
 					if(backendMap.get(config.backend()).languageFind(config.language()) instanceof API.UnknownLanguage)
 					{
-						ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.NORMAL)
+						ChatMessageBuilder message = new ChatMessageBuilder().append(ChatColorType.NORMAL)
 								.append("Current language is ")
 								.append(ChatColorType.HIGHLIGHT)
 								.append("not supported")
@@ -287,7 +287,7 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 
 						chatMessageManager.queue(QueuedMessage.builder()
 								.type(ChatMessageType.CONSOLE)
-								.runeLiteFormattedMessage(builder.build())
+								.runeLiteFormattedMessage(message.build())
 								.build());
 					}
 					break;
@@ -440,27 +440,9 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 
 				if(genericScrollText != null)
 				{
-					StringBuilder builder = new StringBuilder(API.GameText.Type.SCROLL.size);
-
-					for(Widget widget : genericScrollText.getNestedChildren())
+					for(String text : Utils.Text.format(genericScrollText.getNestedChildren()))
 					{
-						if(widget.getType() == WidgetType.TEXT)
-						{
-							if(widget.getText().isBlank() && builder.length() > 0)
-							{
-								textList.add(new API.GameText(builder.toString(), API.GameText.Type.SCROLL));
-								builder = new StringBuilder(API.GameText.Type.SCROLL.size);
-							}
-							else
-							{
-								if(builder.length() > 0)
-								{
-									builder.append(' ');
-								}
-
-								builder.append(widget.getText());
-							}
-						}
+						textList.add(new API.GameText(text, API.GameText.Type.SCROLL));
 					}
 				}
 			}
@@ -635,7 +617,7 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 		{
 			((DeepL)backendMap.get(TranslationBackend.DEEPL)).usage((characterCount, characterLimit) ->
 			{
-				ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.NORMAL)
+				ChatMessageBuilder message = new ChatMessageBuilder().append(ChatColorType.NORMAL)
 						.append("Your current DeepL usage is ")
 						.append(ChatColorType.HIGHLIGHT)
 						.append(Math.round(100f * ((float)characterCount / characterLimit)) + "%")
@@ -644,13 +626,13 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 
 				chatMessageManager.queue(QueuedMessage.builder()
 						.type(ChatMessageType.CONSOLE)
-						.runeLiteFormattedMessage(builder.build())
+						.runeLiteFormattedMessage(message.build())
 						.build());
 			});
 		}
 		else
 		{
-			ChatMessageBuilder builder = new ChatMessageBuilder().append(ChatColorType.NORMAL)
+			ChatMessageBuilder message = new ChatMessageBuilder().append(ChatColorType.NORMAL)
 					.append("Not implemented for ")
 					.append(ChatColorType.HIGHLIGHT)
 					.append(Text.titleCase(config.backend()))
@@ -659,7 +641,7 @@ public class PolywoofPlugin extends Plugin implements MouseListener
 
 			chatMessageManager.queue(QueuedMessage.builder()
 					.type(ChatMessageType.CONSOLE)
-					.runeLiteFormattedMessage(builder.build())
+					.runeLiteFormattedMessage(message.build())
 					.build());
 		}
 	}

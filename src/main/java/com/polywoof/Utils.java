@@ -28,6 +28,35 @@ import java.util.regex.Pattern;
 		{
 			return filterMatchers[2].reset(filterMatchers[1].reset(filterMatchers[0].reset(string).replaceAll(" ")).replaceAll("")).replaceAll(" ").trim();
 		}
+
+		public static List<String> format(Widget[] widgets)
+		{
+			List<String> textList = new ArrayList<>();
+			StringBuilder text = new StringBuilder();
+
+			for(Widget widget : widgets)
+			{
+				if(widget.getType() == WidgetType.TEXT)
+				{
+					if(widget.getText().isBlank() && text.length() > 0)
+					{
+						textList.add(text.toString());
+						text.setLength(0);
+					}
+					else
+					{
+						if(text.length() > 0)
+						{
+							text.append(' ');
+						}
+
+						text.append(widget.getText());
+					}
+				}
+			}
+
+			return textList;
+		}
 	}
 
 	public static final class Interface

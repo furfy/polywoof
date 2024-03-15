@@ -136,14 +136,14 @@ import java.util.List;
 
 	public static String statusMessage(Status status)
 	{
-		StringBuilder builder = new StringBuilder(ColorUtil.wrapWithColorTag(status.text, status.color));
+		StringBuilder message = new StringBuilder(ColorUtil.wrapWithColorTag(status.text, status.color));
 
 		if(status == Status.ON && lastError != null)
 		{
-			builder.append(ColorUtil.wrapWithColorTag(String.format(" [%s]", lastError.getMessage()), Color.RED));
+			message.append(ColorUtil.wrapWithColorTag(String.format(" [%s]", lastError.getMessage()), Color.RED));
 		}
 
-		return builder.toString();
+		return message.toString();
 	}
 
 	@SafeVarargs protected static Language languageFinder(String query, List<Language>... languageList)

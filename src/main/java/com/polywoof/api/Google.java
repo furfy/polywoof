@@ -117,17 +117,16 @@ import java.util.stream.Collectors;
 			try
 			{
 				log.debug("Trying to create the {} request", path);
-				Request request = new Request.Builder()
+				Request.Builder request = new Request.Builder()
 						.addHeader("User-Agent", RuneLite.USER_AGENT + " (polywoof)")
 						.addHeader("X-goog-api-key", key)
 						.addHeader("Accept", "application/json")
 						.addHeader("Content-Type", "application/json")
 						.addHeader("Content-Length", String.valueOf(requestBody.contentLength()))
 						.url("https://translation.googleapis.com" + path)
-						.post(requestBody)
-						.build();
+						.post(requestBody);
 
-				client.newCall(request).enqueue(new Callback()
+				client.newCall(request.build()).enqueue(new Callback()
 				{
 					@Override public void onFailure(Call call, IOException error)
 					{
@@ -165,8 +164,9 @@ import java.util.stream.Collectors;
 		if(!key.equals(this.key))
 		{
 			this.key = key;
-			languageList(languageList -> log.info("Google {} languages loaded", languageList.size()));
 		}
+
+		languageList(languageList -> log.info("Google {} languages loaded", languageList.size()));
 	}
 
 	private static void handleCode(int code) throws Exception
