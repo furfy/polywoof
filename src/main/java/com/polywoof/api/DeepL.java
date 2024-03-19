@@ -21,146 +21,118 @@ import java.util.stream.Collectors;
 	private static final List<Language> trustedLanguageList = new ArrayList<>();
 	private static final MediaType mediaType = MediaType.parse("Content-Type: application/json");
 	private final OkHttpClient client;
-	private String key;
 	private String endpoint;
+	private String key;
 
-	public DeepL(OkHttpClient client)
+	public DeepL(OkHttpClient client, Reportable reportable)
 	{
+		super(reportable);
 		this.client = client;
 	}
 
-	@Override public void fetch(List<GameText> textList, Language language, boolean detectSource, Translatable translatable)
+	@Override public void fetch(List<GameText> textList, boolean detectSource, Language language, boolean ignoreTags, Runnable runnable)
 	{
-		if(language instanceof TrustedLanguage)
+		if(!(language instanceof TrustedLanguage))
 		{
-			List<GameText> bodyText = textList.stream().filter(gameText -> !gameText.cache).collect(Collectors.toList());
+			return;
+		}
 
-			if(bodyText.isEmpty())
+		List<GameText> bodyText = textList.stream().filter(gameText -> !gameText.cache).collect(Collectors.toList());
+
+		if(bodyText.isEmpty())
+		{
+			runnable.run();
+		}
+		else
+		{
+			JsonArray jsonArray = new JsonArray();
+
+			for(GameText gameText : bodyText)
 			{
-				translatable.translate();
+				jsonArray.add(Utils.Text.filter(gameText.game, ignoreTags));
 			}
-			else
+
+			JsonObject jsonObject = new JsonObject();
+			jsonObject.add("text", jsonArray);
+			jsonObject.addProperty("target_lang", language.code);
+			jsonObject.addProperty("context", "runescape; dungeons and dragons; medieval fantasy;");
+			jsonObject.addProperty("split_sentences", "nonewlines");
+			jsonObject.addProperty("preserve_formatting", true);
+			jsonObject.addProperty("formality", "prefer_less");
+			jsonObject.addProperty("tag_handling", "xml");
+
+			if(!detectSource)
 			{
-				JsonArray jsonArray = new JsonArray();
+				jsonObject.addProperty("source_lang", "EN");
+			}
 
-				for(GameText gameText : bodyText)
+			fetch("/v2/translate", FormBody.create(mediaType, jsonObject.toString()), body ->
+			{
+				JsonArray json = parser.parse(body).getAsJsonObject().getAsJsonArray("translations");
+
+				if(bodyText.size() == json.size())
 				{
-					jsonArray.add(Utils.Text.filter(gameText.game));
-				}
+					Iterator<JsonElement> iterator = json.iterator();
 
-				JsonObject jsonObject = new JsonObject();
-				jsonObject.add("text", jsonArray);
-				jsonObject.addProperty("target_lang", language.code);
-				jsonObject.addProperty("context", "runescape; dungeons and dragons; medieval fantasy;");
-				jsonObject.addProperty("preserve_formatting", true);
-				jsonObject.addProperty("formality", "prefer_less");
-				jsonObject.addProperty("tag_handling", "html");
-				jsonObject.addProperty("non_splitting_tags", "br");
-
-				if(!detectSource)
-				{
-					jsonObject.addProperty("source_lang", "EN");
-				}
-
-				fetch("/v2/translate", FormBody.create(mediaType, jsonObject.toString()), body ->
-				{
-					JsonArray json = parser.parse(body).getAsJsonObject().getAsJsonArray("translations");
-
-					if(bodyText.size() == json.size())
+					for(GameText gameText : textList)
 					{
-						Iterator<JsonElement> iterator = json.iterator();
-
-						for(GameText gameText : textList)
+						if(!gameText.cache)
 						{
-							if(!gameText.cache)
-							{
-								gameText.text = StringEscapeUtils.unescapeHtml4(iterator.next().getAsJsonObject().get("text").getAsString());
-							}
+							gameText.text = StringEscapeUtils.unescapeHtml4(iterator.next().getAsJsonObject().get("text").getAsString());
 						}
 					}
 
-					translatable.translate();
-				});
-			}
+					runnable.run();
+				}
+			});
 		}
 	}
 
-	@Override public void languageList(Supportable supportable)
-	{
-		JsonObject jsonObject = new JsonObject();
-		jsonObject.addProperty("type", "target");
-
-		fetch("/v2/languages", FormBody.create(mediaType, jsonObject.toString()), body ->
-		{
-			synchronized(trustedLanguageList)
-			{
-				JsonArray json = parser.parse(body).getAsJsonArray();
-				trustedLanguageList.clear();
-
-				for(JsonElement element : json)
-				{
-					trustedLanguageList.add(new TrustedLanguage(element.getAsJsonObject()));
-				}
-
-				supportable.list(trustedLanguageList);
-			}
-		});
-	}
-
-	@Override public Language languageFind(String language)
+	@Override public void languageSupport(Supportable supportable)
 	{
 		synchronized(trustedLanguageList)
 		{
-			return languageFinder(language, trustedLanguageList, resourceLanguageList);
-		}
-	}
-
-	private void fetch(String path, RequestBody requestBody, Receivable receivable)
-	{
-		if(!key.isBlank())
-		{
-			try
+			if(trustedLanguageList.isEmpty())
 			{
-				log.debug("Trying to create the {} request", path);
-				Request.Builder request = new Request.Builder()
-						.addHeader("User-Agent", RuneLite.USER_AGENT + " (polywoof)")
-						.addHeader("Authorization", "DeepL-Auth-Key " + key)
-						.addHeader("Accept", "application/json")
-						.addHeader("Content-Type", "application/json")
-						.addHeader("Content-Length", String.valueOf(requestBody.contentLength()))
-						.url(endpoint + path)
-						.post(requestBody);
+				JsonObject jsonObject = new JsonObject();
+				jsonObject.addProperty("type", "target");
 
-				client.newCall(request.build()).enqueue(new Callback()
+				fetch("/v2/languages", FormBody.create(mediaType, jsonObject.toString()), body ->
 				{
-					@Override public void onFailure(Call call, IOException error)
+					synchronized(trustedLanguageList)
 					{
-						lastError = error;
-					}
+						JsonArray json = parser.parse(body).getAsJsonArray();
 
-					@Override public void onResponse(Call call, Response response)
-					{
-						try(ResponseBody responseBody = response.body())
+						for(JsonElement element : json)
 						{
-							handleCode(response.code());
-							lastError = null;
+							trustedLanguageList.add(new TrustedLanguage(element.getAsJsonObject()));
+						}
 
-							if(responseBody != null)
-							{
-								receivable.receive(responseBody.string());
-							}
-						}
-						catch(Exception error)
-						{
-							lastError = error;
-						}
+						supportable.support(trustedLanguageList);
 					}
 				});
 			}
-			catch(Exception error)
+			else
 			{
-				log.error("Failed to create the API request", error);
+				supportable.support(trustedLanguageList);
 			}
+		}
+	}
+
+	@Override public Language languageFind(String query)
+	{
+		synchronized(trustedLanguageList)
+		{
+			return languageFinder(query, trustedLanguageList, resourceLanguageList);
+		}
+	}
+
+	public void update(String key)
+	{
+		if(!key.equals(this.key))
+		{
+			this.key = key;
+			endpoint = key.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
 		}
 	}
 
@@ -173,17 +145,6 @@ import java.util.stream.Collectors;
 		});
 	}
 
-	public void update(String key)
-	{
-		if(!key.equals(this.key))
-		{
-			this.key = key;
-			endpoint = key.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
-		}
-
-		languageList(languageList -> log.info("DeepL {} languages loaded", languageList.size()));
-	}
-
 	private static void handleCode(int code) throws Exception
 	{
 		switch(code)
@@ -191,17 +152,66 @@ import java.util.stream.Collectors;
 			case 200:
 				return;
 			case 400:
-				throw new Exception("Bad request");
+				throw new Exception("Bad Request");
 			case 403:
 				throw new Exception("Forbidden");
 			case 429:
-				throw new Exception("Too many requests");
+				throw new Exception("Too Many Requests");
 			case 456:
-				throw new Exception("Quota exceeded");
+				throw new Exception("Quota Exceeded");
 			case 503:
-				throw new Exception("Service unavailable");
+				throw new Exception("Service Unavailable");
 			default:
 				throw new Exception(String.valueOf(code));
+		}
+	}
+
+	private void fetch(String path, RequestBody requestBody, Receivable receivable)
+	{
+		if(key.isBlank())
+		{
+			return;
+		}
+
+		try
+		{
+			Request.Builder request = new Request.Builder()
+					.addHeader("User-Agent", RuneLite.USER_AGENT + " (polywoof)")
+					.addHeader("Authorization", "DeepL-Auth-Key " + key)
+					.addHeader("Accept", "application/json")
+					.addHeader("Content-Type", "application/json")
+					.addHeader("Content-Length", String.valueOf(requestBody.contentLength()))
+					.url(endpoint + path)
+					.post(requestBody);
+
+			client.newCall(request.build()).enqueue(new Callback()
+			{
+				@Override public void onFailure(Call call, IOException error)
+				{
+					handleError(error);
+				}
+
+				@Override public void onResponse(Call call, Response response)
+				{
+					try(ResponseBody responseBody = response.body())
+					{
+						handleCode(response.code());
+
+						if(responseBody != null)
+						{
+							receivable.receive(responseBody.string());
+						}
+					}
+					catch(Exception error)
+					{
+						handleError(error);
+					}
+				}
+			});
+		}
+		catch(Exception error)
+		{
+			log.error("Failed to create the API request", error);
 		}
 	}
 

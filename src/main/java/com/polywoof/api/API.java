@@ -3,37 +3,27 @@ package com.polywoof.api;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.polywoof.PolywoofPlugin;
 import com.polywoof.Dictionary;
+import com.polywoof.PolywoofPlugin;
 import com.polywoof.Utils;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.util.ColorUtil;
 
 import javax.annotation.ParametersAreNonnullByDefault;
-import java.awt.*;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 
-@Slf4j @ParametersAreNonnullByDefault public abstract class API
+@Slf4j @ParametersAreNonnullByDefault @AllArgsConstructor(access = AccessLevel.PUBLIC) public abstract class API
 {
-	public abstract void fetch(List<GameText> textList, Language language, boolean detectSource, Translatable translatable);
-	public abstract void languageList(Supportable supportable);
-	public abstract Language languageFind(String language);
-
-	@AllArgsConstructor(access = AccessLevel.PROTECTED) public abstract static class Language
-	{
-		public final String code;
-		public final String name;
-	}
-
 	protected static final JsonParser parser = new JsonParser();
-	protected static final List<GameText> memory = new ArrayList<>();
 	protected static final List<Language> resourceLanguageList = new ArrayList<>();
-	protected static Exception lastError;
+
+	private static final HashMap<GameText, Language> memory = new HashMap<>();
+	private final Reportable reportable;
 
 	static
 	{
@@ -61,89 +51,84 @@ import java.util.List;
 		}
 	}
 
-	public final void fromDictionary(List<GameText> textList, Language language, Dictionary dictionary, Translatable translatable)
-	{
-		if(!textList.isEmpty() && !(language instanceof UnknownLanguage))
-		{
-			if(this instanceof Generic || !dictionary.status())
-			{
-				fetch(textList, language, false, translatable);
-			}
-			else
-			{
-				if(language instanceof ResourceLanguage)
-				{
-					dictionary.select(textList, language, () ->
-					{
-						textList.removeIf(gameText -> !gameText.cache);
+	public abstract void fetch(List<GameText> textList, boolean detectSource, Language language, boolean ignoreTags, Runnable runnable);
+	public abstract void languageSupport(Supportable supportable);
+	public abstract Language languageFind(String query);
 
-						if(textList.stream().anyMatch(gameText -> gameText.type != GameText.Type.TITLE))
-						{
-							translatable.translate();
-						}
-					});
-				}
-				else
-				{
-					dictionary.select(textList, language, () -> fetch(textList, language, false, () -> dictionary.insert(textList, language, translatable::translate)));
-				}
-			}
+	public final void dictionaryGet(List<GameText> textList, String targetLanguage, boolean ignoreTags, Dictionary dictionary, Runnable runnable)
+	{
+		Language language = languageFind(targetLanguage);
+
+		if(textList.isEmpty() || language instanceof UnknownLanguage)
+		{
+			return;
 		}
-	}
 
-	public final void fromMemory(List<GameText> textList, Language language, Translatable translatable)
-	{
-		if(!textList.isEmpty() && !(language instanceof UnknownLanguage))
+		if(this instanceof Generic || !dictionary.status())
 		{
-			if(this instanceof Generic)
+			fetch(textList, false, language, ignoreTags, runnable);
+		}
+		else
+		{
+			if(language instanceof ResourceLanguage)
 			{
-				fetch(textList, language, true, translatable);
-			}
-			else
-			{
-				for(GameText memoryText : memory)
+				dictionary.select(textList, language, () ->
 				{
-					for(GameText gameText : textList)
+					textList.removeIf(gameText -> !gameText.cache);
+
+					if(textList.stream().anyMatch(gameText -> gameText.type != GameText.Type.TITLE))
 					{
-						if(gameText.game.equals(memoryText.game))
-						{
-							gameText.text = memoryText.text;
-							gameText.cache = true;
-						}
+						runnable.run();
 					}
-				}
-
-				fetch(textList, language, true, () ->
-				{
-					for(GameText gameText : textList)
-					{
-						if(!gameText.cache)
-						{
-							while(memory.size() > 29)
-							{
-								memory.remove(0);
-							}
-
-							memory.add(gameText);
-						}
-					}
-
-					translatable.translate();
 				});
 			}
+			else
+			{
+				dictionary.select(textList, language, () -> fetch(textList, false, language, ignoreTags, () -> dictionary.insert(textList, language, runnable)));
+			}
 		}
 	}
 
-	public static String statusMessage(Status status)
+	public final void memoryGet(List<GameText> textList, String targetLanguage, boolean ignoreTags, Runnable runnable)
 	{
-		StringBuilder message = new StringBuilder(ColorUtil.wrapWithColorTag(status.text, status.color));
+		Language language = languageFind(targetLanguage);
 
-		if(status == Status.ON && lastError != null)
+		if(textList.isEmpty() || language instanceof UnknownLanguage)
 		{
-			message.append(ColorUtil.wrapWithColorTag(String.format(" [%s]", lastError.getMessage()), Color.RED));
+			return;
 		}
 
-		return message.toString();
+		if(this instanceof Generic)
+		{
+			fetch(textList, true, language, ignoreTags, runnable);
+		}
+		else
+		{
+			for(GameText memoryText : memory.keySet())
+			{
+				for(GameText gameText : textList)
+				{
+					if(gameText.game.equals(memoryText.game) && memory.get(memoryText).equals(language))
+					{
+						gameText.text = memoryText.text;
+						gameText.cache = true;
+					}
+				}
+			}
+
+			fetch(textList, true, language, ignoreTags, () ->
+			{
+				for(GameText gameText : textList)
+				{
+					if(!gameText.cache)
+					{
+						memory.put(gameText, language);
+					}
+				}
+
+				runnable.run();
+			});
+		}
 	}
 
 	@SafeVarargs protected static Language languageFinder(String query, List<Language>... languageList)
@@ -161,10 +146,23 @@ import java.util.List;
 						return language;
 					}
 				}
-			}
 
-			for(List<Language> languages : languageList)
-			{
+				for(Language language : languages)
+				{
+					if(language.name.toUpperCase().equals(query))
+					{
+						return language;
+					}
+				}
+
+				for(Language language : languages)
+				{
+					if(language.code.toUpperCase().startsWith(query))
+					{
+						return language;
+					}
+				}
+
 				for(Language language : languages)
 				{
 					if(language.name.toUpperCase().startsWith(query))
@@ -172,10 +170,7 @@ import java.util.List;
 						return language;
 					}
 				}
-			}
 
-			for(List<Language> languages : languageList)
-			{
 				for(Language language : languages)
 				{
 					if(language.name.toUpperCase().contains(query))
@@ -189,7 +184,18 @@ import java.util.List;
 		return new UnknownLanguage(query);
 	}
 
-	public final static class GameText
+	protected void handleError(Exception error)
+	{
+		reportable.report(this, error);
+	}
+
+	@AllArgsConstructor(access = AccessLevel.PROTECTED) public abstract static class Language
+	{
+		public final String code;
+		public final String name;
+	}
+
+	public static final class GameText
 	{
 		public final String game;
 		public final Type type;
@@ -202,15 +208,17 @@ import java.util.List;
 			this.type = type;
 		}
 
-		public GameText(String game, boolean keepTitle)
+		public static GameText create(String game, Type type, boolean translate, boolean removeTags)
 		{
-			this(game, Type.TITLE);
+			GameText gameText = new GameText(game, type);
 
-			if(keepTitle)
+			if(!translate)
 			{
-				text = Utils.Text.filter(game);
-				cache = true;
+				gameText.text = Utils.Text.filter(game, removeTags);
+				gameText.cache = true;
 			}
+
+			return gameText;
 		}
 
 		@AllArgsConstructor(access = AccessLevel.PRIVATE) public enum Type
@@ -243,24 +251,13 @@ import java.util.List;
 		}
 	}
 
-	public interface Translatable
-	{
-		void translate();
-	}
-
 	public interface Supportable
 	{
-		void list(List<Language> languageList);
+		void support(List<Language> languageList);
 	}
 
-	@AllArgsConstructor(access = AccessLevel.PRIVATE) public enum Status
+	public interface Reportable
 	{
-		ON("On", Color.GREEN),
-		OFF("Off", Color.RED),
-		OFFLINE("Offline", Color.ORANGE),
-		GENERIC("Generic", Color.LIGHT_GRAY);
-
-		public final String text;
-		public final Color color;
+		void report(API backend, Exception error);
 	}
 }

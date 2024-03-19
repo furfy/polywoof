@@ -18,41 +18,49 @@ import java.util.regex.Pattern;
 {
 	public static final class Text
 	{
-		private static final Matcher[] filterMatchers = {
+		private static final Matcher[] matchers = {
 				Pattern.compile("<br>").matcher(""),
 				Pattern.compile("<.*?>").matcher(""),
-				Pattern.compile("  +").matcher("")
-		};
+				Pattern.compile("^ +| +$|( ) +").matcher("")};
 
-		public static String filter(String string)
+		public static String filter(String text, boolean removeTags)
 		{
-			return filterMatchers[2].reset(filterMatchers[1].reset(filterMatchers[0].reset(string).replaceAll(" ")).replaceAll("")).replaceAll(" ").trim();
+			text = matchers[0].reset(text).replaceAll(" ");
+
+			if(removeTags)
+			{
+				text = matchers[1].reset(text).replaceAll("");
+			}
+
+			return matchers[2].reset(text).replaceAll("$1");
 		}
 
-		public static List<String> format(Widget[] widgets)
+		public static List<String> format(List<Widget> widgetList)
 		{
 			List<String> textList = new ArrayList<>();
 			StringBuilder text = new StringBuilder();
 
-			for(Widget widget : widgets)
+			for(Widget widget : widgetList)
 			{
-				if(widget.getType() == WidgetType.TEXT)
+				if(widget.getType() == WidgetType.TEXT && !widget.getText().isBlank())
 				{
-					if(widget.getText().isBlank() && text.length() > 0)
+					if(text.length() > 0)
 					{
-						textList.add(text.toString());
-						text.setLength(0);
+						text.append("<br>");
 					}
-					else
-					{
-						if(text.length() > 0)
-						{
-							text.append(' ');
-						}
 
-						text.append(widget.getText());
-					}
+					text.append(widget.getText());
 				}
+				else if(text.length() > 0)
+				{
+					textList.add(text.toString());
+					text.setLength(0);
+				}
+			}
+
+			if(text.length() > 0)
+			{
+				textList.add(text.toString());
 			}
 
 			return textList;
@@ -110,18 +118,16 @@ import java.util.regex.Pattern;
 		}
 	}
 
-	public static final class TextVerifier
+	public static final class TextVerifier extends ArrayList<Matcher>
 	{
-		private final List<Matcher> matcherList = new ArrayList<>();
-
 		public TextVerifier(String patterns)
 		{
 			update(patterns);
 		}
 
-		public boolean verify(List<API.GameText> textList)
+		public void verify(List<API.GameText> textList)
 		{
-			for(Matcher matcher : matcherList)
+			for(Matcher matcher : this)
 			{
 				textList.removeIf(gameText ->
 				{
@@ -138,16 +144,19 @@ import java.util.regex.Pattern;
 				});
 			}
 
-			return textList.stream().anyMatch(gameText -> gameText.type != API.GameText.Type.TITLE);
+			if(textList.stream().allMatch(gameText -> gameText.type.equals(API.GameText.Type.TITLE)))
+			{
+				textList.clear();
+			}
 		}
 
 		public void update(String patterns)
 		{
-			matcherList.clear();
+			clear();
 
 			for(String pattern : patterns.split("\n"))
 			{
-				matcherList.add(Pattern.compile(pattern, Pattern.DOTALL).matcher(""));
+				add(Pattern.compile(pattern, Pattern.DOTALL).matcher(""));
 			}
 		}
 	}

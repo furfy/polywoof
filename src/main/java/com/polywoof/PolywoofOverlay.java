@@ -1,6 +1,8 @@
 package com.polywoof;
 
 import com.polywoof.api.API;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
@@ -8,6 +10,7 @@ import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.tooltip.Tooltip;
 import net.runelite.client.ui.overlay.tooltip.TooltipManager;
+import net.runelite.client.util.ColorUtil;
 import net.runelite.client.util.ImageUtil;
 
 import javax.annotation.ParametersAreNonnullByDefault;
@@ -17,16 +20,22 @@ import java.awt.image.BufferedImage;
 import java.util.List;
 import java.util.*;
 
-@Slf4j @ParametersAreNonnullByDefault public class PolywoofOverlay extends Overlay
+@Slf4j @ParametersAreNonnullByDefault public final class PolywoofOverlay extends Overlay
 {
+	public static final BufferedImage resourceIcon = ImageUtil.loadImageResource(PolywoofPlugin.class, "/icon.png");
 	public static final Dimension iconSize = new Dimension(30, 30);
-	public static BufferedImage resourceIcon = ImageUtil.loadImageResource(PolywoofPlugin.class, "/icon.png");
+	public static final Tooltip[] tooltips = {
+			new Tooltip("Polywoof is " + ColorUtil.wrapWithColorTag("On", Color.GREEN)),
+			new Tooltip("Polywoof is " + ColorUtil.wrapWithColorTag("Off", Color.RED)),
+			new Tooltip("Polywoof is " + ColorUtil.wrapWithColorTag("Offline", Color.ORANGE)),
+			new Tooltip("Polywoof is set to " + ColorUtil.wrapWithColorTag("Generic", Color.GRAY))};
 
-	private final List<TextBoxData> textBoxList = new ArrayList<>();
-	private final Map<String, TextBoxData> textBoxMap = new HashMap<>();
-	private final Tooltip tooltip = new Tooltip("");
-	private AlphaComposite composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER);
+	private final AlphaComposite composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER);
+	private final List<Component> order = new ArrayList<>();
+	private final List<Component> temporary = new ArrayList<>();
+	private final Map<String, Component> permanent = new HashMap<>();
 	@Getter private boolean mouseOver;
+	@Getter private boolean revalidate;
 
 	@Inject private Client client;
 	@Inject private PolywoofConfig config;
@@ -36,102 +45,131 @@ import java.util.*;
 	{
 		if(config.quickActions() && !mouseOver)
 		{
-			graphics.setComposite(composite = composite.derive(0.2f));
+			graphics.setComposite(composite.derive(0.2f));
 			graphics.drawImage(resourceIcon, 0, 0, iconSize.width, iconSize.height, null);
 		}
 
-		List<TextBoxData> dataList = new ArrayList<>(textBoxMap.values());
-		dataList.addAll(textBoxList);
-
-		if(!dataList.isEmpty())
+		if(!permanent.isEmpty() || !temporary.isEmpty())
 		{
-			int offset = 0, size = dataList.stream().mapToInt(textBoxData -> textBoxData.component.update(graphics).height + 4).sum() - 4;
 			OverlayPosition position = Objects.requireNonNullElse(getPreferredPosition(), getPosition());
 
-			for(TextBoxData textBoxData : dataList)
-			{
-				if(textBoxList.contains(textBoxData))
-				{
-					long delta = textBoxData.timestamp - System.currentTimeMillis();
+			int offset = 0;
+			int height = -4;
 
-					if(delta > 0)
+			order.clear();
+			order.addAll(permanent.values());
+			order.addAll(temporary);
+
+			for(Component component : order)
+			{
+				if(revalidate)
+				{
+					component.text.update(config.fontName(), config.fontSize(), config.textWrap());
+				}
+
+				height += component.text.update(graphics).height + 4;
+			}
+
+			revalidate = false;
+
+			for(Component component : order)
+			{
+				long opacity = Math.min(300L, System.currentTimeMillis() - component.timestamp);
+
+				if(opacity < 300L)
+				{
+					component.text.setOpacity(opacity / 300f);
+				}
+				else
+				{
+					if(component.timeout == 0L)
 					{
-						textBoxData.component.setOpacity(Math.min(1000f, delta) / 1000f);
+						component.text.setOpacity(1f);
 					}
 					else
 					{
-						textBoxList.remove(textBoxData);
+						long timeout = Math.min(1000L, component.timestamp + component.timeout - System.currentTimeMillis());
+
+						if(timeout > 0L)
+						{
+							component.text.setOpacity(timeout / 1000f);
+						}
+						else
+						{
+							temporary.remove(component);
+						}
 					}
 				}
 
-				if(config.overlayAlignment() == TextBox.Alignment.DEFAULT)
+				if(config.overlayAlignment() == TextBox.Behaviour.DEFAULT)
 				{
 					if(getPreferredLocation() == null)
 					{
 						switch(position)
 						{
 							case TOP_LEFT:
-								TextBox.alignment = TextBox.Alignment.TOP_LEFT;
+								TextBox.behaviour = TextBox.Behaviour.TOP_LEFT;
 								break;
 							case TOP_CENTER:
-								TextBox.alignment = TextBox.Alignment.TOP;
+								TextBox.behaviour = TextBox.Behaviour.TOP;
 								break;
 							case TOP_RIGHT:
 							case CANVAS_TOP_RIGHT:
-								TextBox.alignment = TextBox.Alignment.TOP_RIGHT;
+								TextBox.behaviour = TextBox.Behaviour.TOP_RIGHT;
 								break;
 							default:
-								TextBox.alignment = TextBox.Alignment.CENTER;
+								TextBox.behaviour = TextBox.Behaviour.CENTER;
 								break;
 							case BOTTOM_LEFT:
-								TextBox.alignment = TextBox.Alignment.BOTTOM_LEFT;
+								TextBox.behaviour = TextBox.Behaviour.BOTTOM_LEFT;
 								break;
 							case ABOVE_CHATBOX_RIGHT:
-								TextBox.alignment = TextBox.Alignment.BOTTOM;
+								TextBox.behaviour = TextBox.Behaviour.BOTTOM;
 								break;
 							case BOTTOM_RIGHT:
-								TextBox.alignment = TextBox.Alignment.BOTTOM_RIGHT;
+								TextBox.behaviour = TextBox.Behaviour.BOTTOM_RIGHT;
 								break;
 						}
 					}
 					else
 					{
-						TextBox.alignment = TextBox.Alignment.DEFAULT;
+						TextBox.behaviour = TextBox.Behaviour.DEFAULT;
 					}
 				}
 				else
 				{
-					TextBox.alignment = config.overlayAlignment();
+					TextBox.behaviour = config.overlayAlignment();
 				}
 
-				switch(TextBox.alignment)
+				switch(TextBox.behaviour)
 				{
 					case TOP_LEFT:
 					case TOP:
 					case TOP_RIGHT:
-						textBoxData.component.setLocation(0, offset);
+						component.text.setLocation(0, offset);
 						break;
+					default:
 					case DEFAULT:
 					case LEFT:
 					case CENTER:
 					case RIGHT:
-						textBoxData.component.setLocation(0, offset - size / 2);
+						component.text.setLocation(0, offset - height / 2);
 						break;
 					case BOTTOM_LEFT:
 					case BOTTOM:
 					case BOTTOM_RIGHT:
-						textBoxData.component.setLocation(0, -offset);
+						component.text.setLocation(0, -offset);
 						break;
 				}
 
-				offset += textBoxData.component.render(graphics).height + 4;
+				offset += component.text.render(graphics).height + 4;
 			}
 		}
 
 		if(config.quickActions() && mouseOver)
 		{
 			mouseOver = false;
-			graphics.setComposite(composite = composite.derive(1f));
+			graphics.setComposite(composite.derive(1f));
 			graphics.drawImage(resourceIcon, 0, 0, iconSize.width, iconSize.height, null);
 		}
 
@@ -140,102 +178,92 @@ import java.util.*;
 
 	@Override public void onMouseOver()
 	{
-		if(config.quickActions() && !client.isMenuOpen())
+		if(!config.quickActions() || client.isMenuOpen())
 		{
-			API.Status status;
+			return;
+		}
 
-			if(config.toggle())
+		Tooltip tooltip;
+
+		if(config.toggle())
+		{
+			if(config.backend() == PolywoofPlugin.TranslationBackend.GENERIC)
 			{
-				if(config.backend() == PolywoofPlugin.TranslationBackend.GENERIC)
-				{
-					status = API.Status.GENERIC;
-				}
-				else
-				{
-					status = config.key().isBlank() ? API.Status.OFFLINE : API.Status.ON;
-				}
+				tooltip = tooltips[3];
 			}
 			else
 			{
-				status = API.Status.OFF;
+				tooltip = config.key().isBlank() ? tooltips[2] : tooltips[0];
 			}
-
-			tooltip.setText("Polywoof is " + API.statusMessage(status));
-			tooltipManager.add(tooltip);
-			mouseOver = true;
 		}
+		else
+		{
+			tooltip = tooltips[1];
+		}
+
+		tooltipManager.add(tooltip);
+		mouseOver = true;
 	}
 
 	@Override public void revalidate()
 	{
-		TextBox.behaviour = config.textAlignment();
+		TextBox.alignment = config.textAlignment();
 		TextBox.backgroundColor = config.overlayBackgroundColor();
 		TextBox.boxOutline = config.overlayOutline();
 		TextBox.textShadow = config.textShadow();
-		TextBox.textWrap = config.textWrap();
-
-		for(TextBoxData textBoxData : textBoxMap.values())
-		{
-			textBoxData.component.setFont(config.fontName(), config.fontSize());
-		}
-
-		for(TextBoxData textBoxData : textBoxList)
-		{
-			textBoxData.component.setFont(config.fontName(), config.fontSize());
-		}
+		revalidate = true;
 	}
 
-	public final void set(String key, List<API.GameText> textList)
+	public void set(String key, List<API.GameText> textList)
 	{
-		if(textBoxMap.containsKey(key))
+		if(permanent.containsKey(key))
 		{
-			pop(key);
+			temporary.add(0, permanent.get(key));
+			permanent.get(key).timeout = System.currentTimeMillis() - permanent.get(key).timestamp + 1500L;
 		}
 
-		textBoxMap.put(key, new TextBoxData(new TextBox(textList, config.fontName(), config.fontSize()), 0));
+		permanent.put(key, new Component(new TextBox(textList, config.fontName(), config.fontSize(), config.textWrap()), 0L));
 	}
 
-	public final void put(List<API.GameText> textList)
+	public void put(List<API.GameText> textList, long timestamp)
 	{
-		while(textBoxList.size() > 9)
+		temporary.add(0, new Component(new TextBox(textList, config.fontName(), config.fontSize(), config.textWrap()), timestamp));
+	}
+
+	public void pop(String key)
+	{
+		if(!permanent.containsKey(key))
 		{
-			textBoxList.remove(textBoxList.size() - 1);
+			return;
 		}
 
-		textBoxList.add(0, new TextBoxData(
-				new TextBox(textList, config.fontName(), config.fontSize()),
-				1500L + (long)(textList.stream().mapToInt(gameText -> gameText.text.length()).sum() * 1000f * (1f / config.readingSpeed()))));
+		temporary.add(0, permanent.get(key));
+		permanent.get(key).timeout = System.currentTimeMillis() - permanent.get(key).timestamp + 1500L;
+		permanent.remove(key);
 	}
 
-	public final void pop(String key)
+	public void clear()
 	{
-		if(textBoxMap.containsKey(key))
+		permanent.clear();
+		temporary.clear();
+	}
+
+	public long timeout(List<API.GameText> textList)
+	{
+		long timeout = 0L;
+
+		for(API.GameText gameText : textList)
 		{
-			while(textBoxList.size() > 9)
-			{
-				textBoxList.remove(textBoxList.size() - 1);
-			}
-
-			textBoxList.add(0, new TextBoxData(textBoxMap.get(key).component, 1500L));
-			textBoxMap.remove(key);
+			timeout += (long)(Utils.Text.filter(Objects.requireNonNullElse(gameText.text, gameText.game), true).length() * 5f / config.readingSpeed());
 		}
+
+		return 1500L + timeout * 1000L;
 	}
 
-	public final void clear()
+	@AllArgsConstructor(access = AccessLevel.PUBLIC) private static final class Component
 	{
-		textBoxList.clear();
-		textBoxMap.clear();
-	}
-
-	private static class TextBoxData
-	{
-		private final TextBox component;
-		private final long timestamp;
-
-		private TextBoxData(TextBox component, long timestamp)
-		{
-			this.component = component;
-			this.timestamp = System.currentTimeMillis() + timestamp;
-		}
+		public final TextBox text;
+		public final long timestamp = System.currentTimeMillis();
+		public long timeout;
 	}
 }

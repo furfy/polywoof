@@ -18,146 +18,105 @@ import java.util.stream.Collectors;
 {
 	private static final List<Language> trustedLanguageList = new ArrayList<>();
 	private final OkHttpClient client;
-	private String key;
+	private String email;
 
-	public MyMemory(OkHttpClient client)
+	static
 	{
-		this.client = client;
-
 		synchronized(trustedLanguageList)
 		{
-			trustedLanguageList.clear();
-
-			for(Language language : resourceLanguageList)
+			synchronized(resourceLanguageList)
 			{
-				trustedLanguageList.add(new TrustedLanguage(language));
-			}
-		}
-	}
-
-	@Override public void fetch(List<GameText> textList, Language language, boolean detectSource, Translatable translatable)
-	{
-		if(language instanceof TrustedLanguage)
-		{
-			List<GameText> bodyText = textList.stream().filter(gameText -> !gameText.cache).collect(Collectors.toList());
-
-			if(bodyText.isEmpty())
-			{
-				translatable.translate();
-			}
-			else
-			{
-				AtomicInteger size = new AtomicInteger();
-
-				for(GameText gameText : bodyText)
+				for(Language language : resourceLanguageList)
 				{
-					FormBody.Builder request = new FormBody.Builder()
-							.add("q", Utils.Text.filter(gameText.game))
-							.add("langpair", String.format("%s|%s", detectSource ? "Autodetect" : "en-GB", language.code));
-
-					if(!key.equals("demo"))
-					{
-						request.add("de", key);
-					}
-
-					fetch(request.build(), body ->
-					{
-						try
-						{
-							JsonObject json = parser.parse(body).getAsJsonObject();
-
-							handleCode(json.get("responseStatus").getAsInt());
-							gameText.text = StringEscapeUtils.unescapeHtml4(json.getAsJsonObject("responseData").get("translatedText").getAsString());
-
-							if(bodyText.size() == size.incrementAndGet())
-							{
-								translatable.translate();
-							}
-						}
-						catch(Exception error)
-						{
-							lastError = error;
-						}
-					});
+					trustedLanguageList.add(new TrustedLanguage(language));
 				}
 			}
 		}
 	}
 
-	@Override public void languageList(Supportable supportable)
+	public MyMemory(OkHttpClient client, Reportable reportable)
 	{
-		synchronized(trustedLanguageList)
-		{
-			supportable.list(trustedLanguageList);
-		}
+		super(reportable);
+		this.client = client;
 	}
 
-	@Override public Language languageFind(String language)
+	@Override public void fetch(List<GameText> textList, boolean detectSource, Language language, boolean ignoreTags, Runnable runnable)
 	{
-		synchronized(trustedLanguageList)
+		if(!(language instanceof TrustedLanguage))
 		{
-			return languageFinder(language, trustedLanguageList, resourceLanguageList);
+			return;
 		}
-	}
 
-	private void fetch(RequestBody requestBody, Receivable receivable)
-	{
-		if(!key.isBlank())
+		List<GameText> bodyText = textList.stream().filter(gameText -> !gameText.cache).collect(Collectors.toList());
+
+		if(bodyText.isEmpty())
 		{
-			try
+			runnable.run();
+		}
+		else
+		{
+			AtomicInteger size = new AtomicInteger();
+
+			for(GameText gameText : bodyText)
 			{
-				log.debug("Trying to create the {} request", "/get");
-				Request.Builder request = new Request.Builder()
-						.addHeader("User-Agent", RuneLite.USER_AGENT + " (polywoof)")
-						.addHeader("Accept", "application/json")
-						.addHeader("Content-Type", "application/x-www-form-urlencoded")
-						.addHeader("Content-Length", String.valueOf(requestBody.contentLength()))
-						.url("https://api.mymemory.translated.net/get")
-						.post(requestBody);
+				FormBody.Builder request = new FormBody.Builder()
+						.add("q", Utils.Text.filter(gameText.game, true))
+						.add("langpair", String.format("%s|%s", detectSource ? "Autodetect" : "en-GB", language.code));
 
-				client.newCall(request.build()).enqueue(new Callback()
+				if(!email.equals("demo"))
 				{
-					@Override public void onFailure(Call call, IOException error)
+					request.add("de", email);
+				}
+
+				fetch(request.build(), body ->
+				{
+					try
 					{
-						lastError = error;
+						JsonObject json = parser.parse(body).getAsJsonObject();
+						handleCode(json.get("responseStatus").getAsInt());
+
+						gameText.text = StringEscapeUtils.unescapeHtml4(json.getAsJsonObject("responseData").get("translatedText").getAsString());
+
+						if(bodyText.size() == size.incrementAndGet())
+						{
+							runnable.run();
+						}
 					}
-
-					@Override public void onResponse(Call call, Response response)
+					catch(Exception error)
 					{
-						try(ResponseBody responseBody = response.body())
-						{
-							handleCode(response.code());
-							lastError = null;
-
-							if(responseBody != null)
-							{
-								receivable.receive(responseBody.string());
-							}
-						}
-						catch(Exception error)
-						{
-							lastError = error;
-						}
+						handleError(error);
 					}
 				});
 			}
-			catch(Exception error)
-			{
-				log.error("Failed to create the API request", error);
-			}
 		}
 	}
 
-	public void update(String key)
+	@Override public void languageSupport(Supportable supportable)
 	{
-		if(!key.equals(this.key))
+		synchronized(trustedLanguageList)
 		{
-			if(!key.isBlank() && !key.matches("^[^@]+@[^@.]+\\.[^@.]+$"))
+			supportable.support(trustedLanguageList);
+		}
+	}
+
+	@Override public Language languageFind(String query)
+	{
+		synchronized(trustedLanguageList)
+		{
+			return languageFinder(query, trustedLanguageList, resourceLanguageList);
+		}
+	}
+
+	public void update(String email)
+	{
+		if(!email.equals(this.email))
+		{
+			if(!email.isBlank() && !email.matches("^[^@]+@[^@.]+\\.[^@.]+$"))
 			{
-				key = "demo";
+				email = "demo";
 			}
 
-			this.key = key;
+			this.email = email;
 		}
 	}
 
@@ -168,15 +127,63 @@ import java.util.stream.Collectors;
 			case 200:
 				return;
 			case 400:
-				throw new Exception("Bad request");
+				throw new Exception("Bad Request");
 			case 403:
 				throw new Exception("Forbidden");
 			case 429:
-				throw new Exception("Too many requests");
+				throw new Exception("Too Many Requests");
 			case 503:
-				throw new Exception("Service unavailable");
+				throw new Exception("Service Unavailable");
 			default:
 				throw new Exception(String.valueOf(code));
+		}
+	}
+
+	private void fetch(RequestBody requestBody, Receivable receivable)
+	{
+		if(email.isBlank())
+		{
+			return;
+		}
+
+		try
+		{
+			Request.Builder request = new Request.Builder()
+					.addHeader("User-Agent", RuneLite.USER_AGENT + " (polywoof)")
+					.addHeader("Accept", "application/json")
+					.addHeader("Content-Type", "application/x-www-form-urlencoded")
+					.addHeader("Content-Length", String.valueOf(requestBody.contentLength()))
+					.url("https://api.mymemory.translated.net/get")
+					.post(requestBody);
+
+			client.newCall(request.build()).enqueue(new Callback()
+			{
+				@Override public void onFailure(Call call, IOException error)
+				{
+					handleError(error);
+				}
+
+				@Override public void onResponse(Call call, Response response)
+				{
+					try(ResponseBody responseBody = response.body())
+					{
+						handleCode(response.code());
+
+						if(responseBody != null)
+						{
+							receivable.receive(responseBody.string());
+						}
+					}
+					catch(Exception error)
+					{
+						handleError(error);
+					}
+				}
+			});
+		}
+		catch(Exception error)
+		{
+			log.error("Failed to create the API request", error);
 		}
 	}
 

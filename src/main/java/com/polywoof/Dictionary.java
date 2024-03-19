@@ -30,101 +30,100 @@ import java.util.concurrent.Executors;
 
 	public void open()
 	{
-		if(!status())
+		if(status())
 		{
-			executor.execute(() ->
+			return;
+		}
+
+		executor.execute(() ->
+		{
+			try
 			{
+				log.info("Trying to open the database");
+				Connection db = data.getConnection();
+
 				try
 				{
-					log.info("Trying to open the database");
-					Connection db = data.getConnection();
-
-					try
+					try(PreparedStatement statement = db.prepareStatement("create table if not exists" +
+							"\nINFORMATION_SCHEMA.PROPERTIES (PROPERTY_NAME varchar(256) primary key, PROPERTY_VALUE varchar(256) not null)"))
 					{
-						log.debug("Trying to create the properties");
-						try(PreparedStatement statement = db.prepareStatement("create table if not exists" +
-								"\nINFORMATION_SCHEMA.PROPERTIES (PROPERTY_NAME varchar(256) primary key, PROPERTY_VALUE varchar(256) not null)"))
+						statement.executeUpdate();
+					}
+
+					try(PreparedStatement preparedStatement = db.prepareStatement("select * from" +
+							"\nINFORMATION_SCHEMA.PROPERTIES where PROPERTY_NAME = ? and PROPERTY_VALUE >= ?"))
+					{
+						preparedStatement.setString(1, "dictionary.revision");
+						preparedStatement.setString(2, String.valueOf(revision));
+
+						if(!preparedStatement.executeQuery().next())
 						{
-							statement.executeUpdate();
-						}
-
-						log.debug("Trying to select from the properties");
-						try(PreparedStatement preparedStatement = db.prepareStatement("select * from" +
-								"\nINFORMATION_SCHEMA.PROPERTIES where PROPERTY_NAME = ? and PROPERTY_VALUE >= ?"))
-						{
-							preparedStatement.setString(1, "dictionary.revision");
-							preparedStatement.setString(2, String.valueOf(revision));
-
-							if(!preparedStatement.executeQuery().next())
-							{
-								log.info("Trying to drop the schema");
-								try(PreparedStatement statement = db.prepareStatement("drop schema if exists" +
-										"\nDICTIONARY cascade"))
-								{
-									statement.executeUpdate();
-								}
-
-								log.debug("Trying to insert into the properties");
-								try(PreparedStatement statement = db.prepareStatement("merge into" +
-										"\nINFORMATION_SCHEMA.PROPERTIES values(?, ?)"))
-								{
-									statement.setString(1, "dictionary.revision");
-									statement.setString(2, String.valueOf(revision));
-									statement.executeUpdate();
-								}
-							}
-						}
-
-						log.debug("Trying to create the schema");
-						try(PreparedStatement statement = db.prepareStatement("create schema if not exists" +
-								"\nDICTIONARY"))
-						{
-							statement.executeUpdate();
-						}
-
-						for(API.GameText.Type type : API.GameText.Type.values())
-						{
-							log.debug("Trying to create {} in the database", type);
-							try(PreparedStatement statement = db.prepareStatement(String.format("create table if not exists" +
-									"\nDICTIONARY.%1$s (GAME varchar(%2$s) primary key)", type, type.size)))
+							log.info("Trying to drop the schema");
+							try(PreparedStatement statement = db.prepareStatement("drop schema if exists" +
+									"\nDICTIONARY cascade"))
 							{
 								statement.executeUpdate();
 							}
-						}
 
-						this.db = db;
+							try(PreparedStatement statement = db.prepareStatement("merge into" +
+									"\nINFORMATION_SCHEMA.PROPERTIES values(?, ?)"))
+							{
+								statement.setString(1, "dictionary.revision");
+								statement.setString(2, String.valueOf(revision));
+								statement.executeUpdate();
+							}
+						}
 					}
-					catch(SQLException error)
+
+					try(PreparedStatement statement = db.prepareStatement("create schema if not exists" +
+							"\nDICTIONARY"))
 					{
-						db.close();
-						throw error;
+						statement.executeUpdate();
 					}
+
+					for(API.GameText.Type type : API.GameText.Type.values())
+					{
+						try(PreparedStatement statement = db.prepareStatement(String.format("create table if not exists" +
+								"\nDICTIONARY.%1$s (GAME varchar(%2$s) primary key)", type, type.size)))
+						{
+							statement.executeUpdate();
+						}
+					}
+
+					this.db = db;
 				}
 				catch(SQLException error)
 				{
-					log.error("Failed to open the database", error);
+					db.close();
+					throw error;
 				}
-			});
-		}
+			}
+			catch(SQLException error)
+			{
+				log.error("Failed to open the database", error);
+			}
+		});
 	}
 
 	public void close()
 	{
-		if(status())
+		if(!status())
 		{
-			executor.execute(() ->
-			{
-				try
-				{
-					log.info("Trying to close the database");
-					db.close();
-				}
-				catch(SQLException error)
-				{
-					log.error("Failed to close the database", error);
-				}
-			});
+			return;
 		}
+
+		executor.execute(() ->
+		{
+			try
+			{
+				log.info("Trying to close the database");
+				db.close();
+			}
+			catch(SQLException error)
+			{
+				log.error("Failed to close the database", error);
+			}
+		});
 	}
 
 	public boolean status()
@@ -141,95 +140,96 @@ import java.util.concurrent.Executors;
 		return false;
 	}
 
-	public void select(List<API.GameText> textList, API.Language language, Queryable queryable)
+	public void select(List<API.GameText> textList, API.Language language, Runnable runnable)
 	{
-		if(status())
+		if(!status())
 		{
-			executor.execute(() ->
+			return;
+		}
+
+		executor.execute(() ->
+		{
+			for(API.GameText gameText : textList)
 			{
-				for(API.GameText gameText : textList)
+				if(gameText.cache)
 				{
-					if(!gameText.cache)
+					continue;
+				}
+
+				try(PreparedStatement preparedStatement = db.prepareStatement("select * from" +
+						"\nINFORMATION_SCHEMA.COLUMNS where TABLE_SCHEMA = ? and TABLE_NAME = ? and COLUMN_NAME = ?"))
+				{
+					preparedStatement.setString(1, "DICTIONARY");
+					preparedStatement.setString(2, gameText.type.toString());
+					preparedStatement.setString(3, language.code.toUpperCase());
+
+					if(!preparedStatement.executeQuery().next())
 					{
-						log.debug("Trying to select {} from the database", gameText.type);
-						try(PreparedStatement preparedStatement = db.prepareStatement("select * from" +
-								"\nINFORMATION_SCHEMA.COLUMNS where TABLE_SCHEMA = ? and TABLE_NAME = ? and COLUMN_NAME = ?"))
-						{
-							preparedStatement.setString(1, "DICTIONARY");
-							preparedStatement.setString(2, gameText.type.toString());
-							preparedStatement.setString(3, language.code.toUpperCase());
+						continue;
+					}
 
-							if(preparedStatement.executeQuery().next())
-							{
-								log.debug("Trying to select {} from the database", language.name);
-								try(PreparedStatement statement = db.prepareStatement(String.format("select `%2$s` from" +
-										"\nDICTIONARY.%1$s where GAME = ? and `%2$s` is not null", gameText.type, language.code.toUpperCase())))
-								{
-									statement.setString(1, gameText.game);
-									ResultSet resultSet = statement.executeQuery();
+					try(PreparedStatement statement = db.prepareStatement(String.format("select `%2$s` from" +
+							"\nDICTIONARY.%1$s where GAME = ? and `%2$s` is not null", gameText.type, language.code.toUpperCase())))
+					{
+						statement.setString(1, gameText.game);
+						ResultSet resultSet = statement.executeQuery();
 
-									if(resultSet.next())
-									{
-										gameText.text = resultSet.getString(language.code.toUpperCase());
-										gameText.cache = true;
-									}
-								}
-							}
-						}
-						catch(SQLException error)
+						if(resultSet.next())
 						{
-							log.error("Failed to select from the database", error);
+							gameText.text = resultSet.getString(language.code.toUpperCase());
+							gameText.cache = true;
 						}
 					}
 				}
+				catch(SQLException error)
+				{
+					log.error("Failed to select from the database", error);
+				}
+			}
 
-				queryable.query();
-			});
-		}
+			runnable.run();
+		});
 	}
 
-	public void insert(List<API.GameText> textList, API.Language language, Queryable queryable)
+	public void insert(List<API.GameText> textList, API.Language language, Runnable runnable)
 	{
-		if(status())
+		if(!status())
 		{
-			executor.execute(() ->
-			{
-				for(API.GameText gameText : textList)
-				{
-					if(!gameText.cache)
-					{
-						try
-						{
-							log.debug("Trying to create {} in the database", gameText.type);
-							try(PreparedStatement statement = db.prepareStatement(String.format("alter table" +
-									"\nDICTIONARY.%1$s add if not exists `%3$s` varchar(%2$s)", gameText.type, gameText.type.size, language.code.toUpperCase())))
-							{
-								statement.executeUpdate();
-							}
+			return;
+		}
 
-							log.debug("Trying to insert {} into the database", language.name);
-							try(PreparedStatement statement = db.prepareStatement(String.format("merge into" +
-									"\nDICTIONARY.%1$s (GAME, `%2$s`) values(?, ?)", gameText.type, language.code.toUpperCase())))
-							{
-								statement.setString(1, gameText.game);
-								statement.setString(2, gameText.text);
-								statement.executeUpdate();
-							}
-						}
-						catch(SQLException error)
-						{
-							log.error("Failed to insert into the database", error);
-						}
-					}
+		executor.execute(() ->
+		{
+			for(API.GameText gameText : textList)
+			{
+				if(gameText.cache)
+				{
+					continue;
 				}
 
-				queryable.query();
-			});
-		}
-	}
+				try
+				{
+					try(PreparedStatement statement = db.prepareStatement(String.format("alter table" +
+							"\nDICTIONARY.%1$s add if not exists `%3$s` varchar(%2$s)", gameText.type, gameText.type.size, language.code.toUpperCase())))
+					{
+						statement.executeUpdate();
+					}
 
-	public interface Queryable
-	{
-		void query();
+					try(PreparedStatement statement = db.prepareStatement(String.format("merge into" +
+							"\nDICTIONARY.%1$s (GAME, `%2$s`) values(?, ?)", gameText.type, language.code.toUpperCase())))
+					{
+						statement.setString(1, gameText.game);
+						statement.setString(2, gameText.text);
+						statement.executeUpdate();
+					}
+				}
+				catch(SQLException error)
+				{
+					log.error("Failed to insert into the database", error);
+				}
+			}
+
+			runnable.run();
+		});
 	}
 }

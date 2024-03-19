@@ -23,139 +23,102 @@ import java.util.stream.Collectors;
 	private final OkHttpClient client;
 	private String key;
 
-	public Google(OkHttpClient client)
+	public Google(OkHttpClient client, Reportable reportable)
 	{
+		super(reportable);
 		this.client = client;
 	}
 
-	@Override public void fetch(List<GameText> textList, Language language, boolean detectSource, Translatable translatable)
+	@Override public void fetch(List<GameText> textList, boolean detectSource, Language language, boolean ignoreTags, Runnable runnable)
 	{
-		if(language instanceof TrustedLanguage)
+		if(!(language instanceof TrustedLanguage))
 		{
-			List<GameText> bodyText = textList.stream().filter(gameText -> !gameText.cache).collect(Collectors.toList());
+			return;
+		}
 
-			if(bodyText.isEmpty())
+		List<GameText> bodyText = textList.stream().filter(gameText -> !gameText.cache).collect(Collectors.toList());
+
+		if(bodyText.isEmpty())
+		{
+			runnable.run();
+		}
+		else
+		{
+			JsonArray jsonArray = new JsonArray();
+
+			for(GameText gameText : bodyText)
 			{
-				translatable.translate();
+				jsonArray.add(Utils.Text.filter(gameText.game, true));
 			}
-			else
+
+			JsonObject jsonObject = new JsonObject();
+			jsonObject.add("q", jsonArray);
+			jsonObject.addProperty("target", language.code);
+			jsonObject.addProperty("format", "text");
+
+			if(!detectSource)
 			{
-				JsonArray jsonArray = new JsonArray();
+				jsonObject.addProperty("source", "en-GB");
+			}
 
-				for(GameText gameText : bodyText)
+			fetch("/language/translate/v2", FormBody.create(mediaType, jsonObject.toString()), body ->
+			{
+				JsonArray json = parser.parse(body).getAsJsonObject().getAsJsonObject("data").getAsJsonArray("translations");
+
+				if(bodyText.size() == json.size())
 				{
-					jsonArray.add(Utils.Text.filter(gameText.game));
-				}
+					Iterator<JsonElement> iterator = json.iterator();
 
-				JsonObject jsonObject = new JsonObject();
-				jsonObject.add("q", jsonArray);
-				jsonObject.addProperty("target", language.code);
-				jsonObject.addProperty("format", "html");
-
-				if(!detectSource)
-				{
-					jsonObject.addProperty("source", "en-GB");
-				}
-
-				fetch("/language/translate/v2", FormBody.create(mediaType, jsonObject.toString()), body ->
-				{
-					JsonArray json = parser.parse(body).getAsJsonObject().getAsJsonObject("data").getAsJsonArray("translations");
-
-					if(bodyText.size() == json.size())
+					for(GameText gameText : textList)
 					{
-						Iterator<JsonElement> iterator = json.iterator();
-
-						for(GameText gameText : textList)
+						if(!gameText.cache)
 						{
-							if(!gameText.cache)
-							{
-								gameText.text = StringEscapeUtils.unescapeHtml4(iterator.next().getAsJsonObject().get("translatedText").getAsString());
-							}
+							gameText.text = StringEscapeUtils.unescapeHtml4(iterator.next().getAsJsonObject().get("translatedText").getAsString());
 						}
 					}
 
-					translatable.translate();
-				});
-			}
+					runnable.run();
+				}
+			});
 		}
 	}
 
-	@Override public void languageList(Supportable supportable)
-	{
-		JsonObject jsonObject = new JsonObject();
-		jsonObject.addProperty("target", "en");
-
-		fetch("/language/translate/v2/languages", FormBody.create(mediaType, jsonObject.toString()), body ->
-		{
-			synchronized(trustedLanguageList)
-			{
-				JsonArray json = parser.parse(body).getAsJsonObject().getAsJsonObject("data").getAsJsonArray("languages");
-				trustedLanguageList.clear();
-
-				for(JsonElement element : json)
-				{
-					trustedLanguageList.add(new TrustedLanguage(element.getAsJsonObject()));
-				}
-
-				supportable.list(trustedLanguageList);
-			}
-		});
-	}
-
-	@Override public Language languageFind(String language)
+	@Override public void languageSupport(Supportable supportable)
 	{
 		synchronized(trustedLanguageList)
 		{
-			return languageFinder(language, trustedLanguageList, resourceLanguageList);
-		}
-	}
-
-	private void fetch(String path, RequestBody requestBody, Receivable receivable)
-	{
-		if(!key.isBlank())
-		{
-			try
+			if(trustedLanguageList.isEmpty())
 			{
-				log.debug("Trying to create the {} request", path);
-				Request.Builder request = new Request.Builder()
-						.addHeader("User-Agent", RuneLite.USER_AGENT + " (polywoof)")
-						.addHeader("X-goog-api-key", key)
-						.addHeader("Accept", "application/json")
-						.addHeader("Content-Type", "application/json")
-						.addHeader("Content-Length", String.valueOf(requestBody.contentLength()))
-						.url("https://translation.googleapis.com" + path)
-						.post(requestBody);
+				JsonObject jsonObject = new JsonObject();
+				jsonObject.addProperty("target", "en");
 
-				client.newCall(request.build()).enqueue(new Callback()
+				fetch("/language/translate/v2/languages", FormBody.create(mediaType, jsonObject.toString()), body ->
 				{
-					@Override public void onFailure(Call call, IOException error)
+					synchronized(trustedLanguageList)
 					{
-						lastError = error;
-					}
+						JsonArray json = parser.parse(body).getAsJsonObject().getAsJsonObject("data").getAsJsonArray("languages");
 
-					@Override public void onResponse(Call call, Response response)
-					{
-						try(ResponseBody responseBody = response.body())
+						for(JsonElement element : json)
 						{
-							handleCode(response.code());
-							lastError = null;
+							trustedLanguageList.add(new TrustedLanguage(element.getAsJsonObject()));
+						}
 
-							if(responseBody != null)
-							{
-								receivable.receive(responseBody.string());
-							}
-						}
-						catch(Exception error)
-						{
-							lastError = error;
-						}
+						supportable.support(trustedLanguageList);
 					}
 				});
 			}
-			catch(Exception error)
+			else
 			{
-				log.error("Failed to create the API request", error);
+				supportable.support(trustedLanguageList);
 			}
+		}
+	}
+
+	@Override public Language languageFind(String query)
+	{
+		synchronized(trustedLanguageList)
+		{
+			return languageFinder(query, trustedLanguageList, resourceLanguageList);
 		}
 	}
 
@@ -165,8 +128,6 @@ import java.util.stream.Collectors;
 		{
 			this.key = key;
 		}
-
-		languageList(languageList -> log.info("Google {} languages loaded", languageList.size()));
 	}
 
 	private static void handleCode(int code) throws Exception
@@ -176,15 +137,64 @@ import java.util.stream.Collectors;
 			case 200:
 				return;
 			case 400:
-				throw new Exception("Invalid argument");
+				throw new Exception("Invalid Argument");
 			case 401:
 				throw new Exception("Unauthenticated");
 			case 429:
-				throw new Exception("Resource exhausted");
+				throw new Exception("Resource Exhausted");
 			case 503:
 				throw new Exception("Unavailable");
 			default:
 				throw new Exception(String.valueOf(code));
+		}
+	}
+
+	private void fetch(String path, RequestBody requestBody, Receivable receivable)
+	{
+		if(key.isBlank())
+		{
+			return;
+		}
+
+		try
+		{
+			Request.Builder request = new Request.Builder()
+					.addHeader("User-Agent", RuneLite.USER_AGENT + " (polywoof)")
+					.addHeader("X-goog-api-key", key)
+					.addHeader("Accept", "application/json")
+					.addHeader("Content-Type", "application/json")
+					.addHeader("Content-Length", String.valueOf(requestBody.contentLength()))
+					.url("https://translation.googleapis.com" + path)
+					.post(requestBody);
+
+			client.newCall(request.build()).enqueue(new Callback()
+			{
+				@Override public void onFailure(Call call, IOException error)
+				{
+					handleError(error);
+				}
+
+				@Override public void onResponse(Call call, Response response)
+				{
+					try(ResponseBody responseBody = response.body())
+					{
+						handleCode(response.code());
+
+						if(responseBody != null)
+						{
+							receivable.receive(responseBody.string());
+						}
+					}
+					catch(Exception error)
+					{
+						handleError(error);
+					}
+				}
+			});
+		}
+		catch(Exception error)
+		{
+			log.error("Failed to create the API request", error);
 		}
 	}
 

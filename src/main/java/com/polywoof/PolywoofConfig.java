@@ -25,14 +25,14 @@ import java.awt.*;
 
 	@ConfigSection(
 			name = "General",
-			description = "Settings for overall Experience",
+			description = "Settings for the General functionality",
 			position = 0)
 	String generalSection = "generalSection";
 
 	@ConfigItem(
 			keyName = "backend",
-			name = "Translation Service",
-			description = "Choose the Backend for translation",
+			name = "Translation Method",
+			description = "Choose the Backend for translations",
 			section = generalSection,
 			position = 0)
 	default PolywoofPlugin.TranslationBackend backend()
@@ -53,7 +53,7 @@ import java.awt.*;
 	}
 
 	@ConfigItem(
-			keyName = "targetLanguage",
+			keyName = "language",
 			name = "Target Language",
 			description = "Type your desired Language",
 			section = generalSection,
@@ -63,60 +63,49 @@ import java.awt.*;
 		return "ru";
 	}
 
+	@Range(min = 1, max = 99) @Units("/99") @ConfigItem(
+			keyName = "readingSpeed",
+			name = "Reading Skill",
+			description = "Affects how quickly Text Boxes disappear",
+			section = generalSection,
+			position = 3)
+	default int readingSpeed()
+	{
+		return 60;
+	}
+
 	@ConfigItem(
 			keyName = "quickActions",
 			name = "Quick Actions",
-			description = "Translucent Quick Actions icon near Text Boxes",
+			description = "Quick Actions button near Text Boxes",
 			section = generalSection,
-			position = 3)
+			position = 4)
 	default boolean quickActions()
 	{
 		return true;
 	}
 
 	@ConfigItem(
-			keyName = "backendAlternative",
-			name = "Alternative Service",
-			description = "Select the Backend for the Quick Actions",
-			section = generalSection,
-			position = 4)
-	default PolywoofPlugin.TranslationBackend backendAlternative()
-	{
-		return PolywoofPlugin.TranslationBackend.DEEPL;
-	}
-
-	@ConfigItem(
-			keyName = "keyAlternative",
-			name = "API Key",
-			description = "Same as the previous API Key, but for the Alternative Backend",
-			secret = true,
+			keyName = "forceMyMemory",
+			name = "Force MyMemory",
+			description = "Use MyMemory backend for the Quick Actions",
 			section = generalSection,
 			position = 5)
-	default String keyAlternative()
+	default boolean forceMyMemory()
 	{
-		return "";
-	}
-
-	@Range(min = 1, max = 99) @ConfigItem(
-			keyName = "readingSpeed",
-			name = "Reading Skill",
-			description = "Affects how quickly temporary Text Boxes disappear",
-			section = generalSection,
-			position = 6)
-	default int readingSpeed()
-	{
-		return 10;
+		return false;
 	}
 
 	@ConfigItem(
-			keyName = "showUsage",
-			name = "Show API Usage",
-			description = "Shows your API Usage when you logon",
+			keyName = "emailAddress",
+			name = "Email Address",
+			description = "Used by MyMemory for an additional API Quota",
+			secret = true,
 			section = generalSection,
-			position = 7)
-	default boolean showUsage()
+			position = 6)
+	default String emailAddress()
 	{
-		return true;
+		return "";
 	}
 
 	@ConfigSection(
@@ -126,14 +115,14 @@ import java.awt.*;
 	String translationSection = "translationSection";
 
 	@ConfigItem(
-			keyName = "keepTitle",
-			name = "Keep Titles",
-			description = "Context Titles will not be translated",
+			keyName = "translateTitle",
+			name = "Titles",
+			description = "Translation for Context Titles",
 			section = translationSection,
 			position = 0)
-	default boolean keepTitle()
+	default boolean translateTitle()
 	{
-		return false;
+		return true;
 	}
 
 	@ConfigItem(
@@ -204,7 +193,7 @@ import java.awt.*;
 
 	@ConfigSection(
 			name = "Appearance",
-			description = "Font and Visual Tweaks",
+			description = "Font and Visual tweaks",
 			closedByDefault = true,
 			position = 2)
 	String appearanceSection = "visualSection";
@@ -220,7 +209,7 @@ import java.awt.*;
 		return "CozetteVector";
 	}
 
-	@Range(min = 1, max = 99) @ConfigItem(
+	@Range(min = 1, max = 99) @Units("pt") @ConfigItem(
 			keyName = "fontSize",
 			name = "Font Size",
 			description = "Adjust the Font Size for more comfort",
@@ -283,28 +272,28 @@ import java.awt.*;
 	String formattingSection = "formattingSection";
 
 	@ConfigItem(
-			keyName = "overlayAlignment",
-			name = "Text Box Alignment",
-			description = "Override default Alignment Behaviour",
+			keyName = "textAlignment",
+			name = "Text Alignment",
+			description = "Customize Text Alignment for unusual positions",
 			section = formattingSection,
 			position = 0)
-	default TextBox.Alignment overlayAlignment()
+	default TextBox.Alignment textAlignment()
 	{
 		return TextBox.Alignment.DEFAULT;
 	}
 
 	@ConfigItem(
-			keyName = "textAlignment",
-			name = "Text Alignment",
-			description = "Customize Text Alignment for unusual positions",
+			keyName = "overlayAlignment",
+			name = "Flow Alignment",
+			description = "Override default Flow Alignment for Text Boxes",
 			section = formattingSection,
 			position = 1)
-	default TextBox.Behaviour textAlignment()
+	default TextBox.Behaviour overlayAlignment()
 	{
 		return TextBox.Behaviour.DEFAULT;
 	}
 
-	@Range(min = 32, max = 2277) @ConfigItem(
+	@Range(min = 32, max = 2277) @Units("px") @ConfigItem(
 			keyName = "textWrap",
 			name = "Text Wrap Width",
 			description = "Set maximum Text Length to fit horizontally",
@@ -316,11 +305,22 @@ import java.awt.*;
 	}
 
 	@ConfigItem(
+			keyName = "ignoreTags",
+			name = "Ignore Tags",
+			description = "Tags are used for text styles, but at the cost of the API Usage",
+			section = formattingSection,
+			position = 3)
+	default boolean ignoreTags()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 			keyName = "filterChatMessage",
 			name = "Chat Messages Filter",
 			description = "Filter for Chat Messages",
 			section = formattingSection,
-			position = 3)
+			position = 4)
 	default String filterChatMessage()
 	{
 		return "^[0-9,]+ x Coins\\.$" +
@@ -338,7 +338,7 @@ import java.awt.*;
 			name = "Overhead Text Filter",
 			description = "Filter for Overhead Text",
 			section = formattingSection,
-			position = 4)
+			position = 5)
 	default String filterOverheadText()
 	{
 		return "^[0-9,\\.]+$";
@@ -349,7 +349,7 @@ import java.awt.*;
 			name = "Dialog Text Filter",
 			description = "Filter for Dialogs and Options",
 			section = formattingSection,
-			position = 5)
+			position = 6)
 	default String filterDialog()
 	{
 		return "^Congratulations, you've just advanced your .+ level\\." +
