@@ -1,7 +1,5 @@
 # Polywoof for RuneLite\![<img align="right" height="192" src="resources/logo.png">](../..)
 
-[![](https://img.shields.io/endpoint?url=https://i.pluginhub.info/shields/rank/plugin/polywoof)](https://runelite.net/plugin-hub/show/polywoof)
-[![](https://img.shields.io/endpoint?url=https://i.pluginhub.info/shields/installs/plugin/polywoof)](https://runelite.net/plugin-hub/show/polywoof)
 [![](https://img.shields.io/discord/321345656184635402?label=Discord)](https://furfy.github.io/invite)
 [![](https://img.shields.io/github/stars/furfy/polywoof?style=social)](../..)
 
@@ -91,7 +89,7 @@ Embedded **H2 SQL** database[^3] with an organized schema for the supported lang
 |:------------------------:|:--------------------------:|:-------------------------:|
 |         _Early_          |         _Release_          |         _Rework_          |
 
-[![DigitalOcean Referral Badge](https://web-platforms.sfo2.digitaloceanspaces.com/WWW/Badge%203.svg)](https://www.digitalocean.com/?refcode=71af1247dfc7&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge)
+[![DigitalOcean Referral Badge](https://web-platforms.sfo2.digitaloceanspaces.com/WWW/Badge%203.svg)](https://www.vdsina.com/?partner=2zi1cv5f34)
 
 *Люблю Дэйвика.. 💕*<br>
 *Благодарности Эвилу за помощь! ✨*
